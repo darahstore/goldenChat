@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+
+body { 
+    font-family: 'Tajawal', sans-serif; 
+    background-color: #111827; 
+    color: white; 
+    overflow: hidden; 
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #F59E0B; border-radius: 10px; }
+
+.glass-panel { 
+    background: rgba(31, 41, 55, 0.8); 
+    backdrop-filter: blur(10px); 
+    border: 1px solid rgba(245, 158, 11, 0.2); 
+}
+
+.hidden-view { 
+    display: none !important; 
+}

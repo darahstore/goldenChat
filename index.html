@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" id="html-root">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>goldenChat</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js" async></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gold: { 400: '#FBBF24', 500: '#F59E0B', 600: '#D97706' },
+                        dark: { 800: '#1F2937', 900: '#111827' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+        body { font-family: 'Tajawal', sans-serif; background-color: #111827; color: white; overflow: hidden; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #F59E0B; border-radius: 10px; }
+        .glass-panel { background: rgba(31, 41, 55, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(245, 158, 11, 0.2); }
+        .hidden-view { display: none !important; }
+        #offline-bar { transition: top 0.3s ease; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col relative">
+
+    <div id="offline-bar" class="absolute top-[-50px] left-0 w-full bg-red-600 text-white text-center py-2 font-bold z-50">
+        <i class="ph ph-wifi-x mr-2"></i> <span id="offline-text">جاري إعادة الاتصال بالإنترنت...</span>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 1. شاشة اختيار اللغة -->
+    <!-- ========================================== -->
+    <div id="lang-view" class="flex flex-col items-center justify-center w-full h-full p-6 absolute z-40 bg-dark-900">
+        <i class="ph-fill ph-crown text-gold-500 text-7xl mb-4"></i>
+        <h1 class="text-3xl font-bold text-gold-400 mb-8">goldenChat</h1>
+        <div class="space-y-4 w-full max-w-xs">
+            <button onclick="setLanguage('ar')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">العربية</button>
+            <button onclick="setLanguage('en')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">English</button>
+            <button onclick="setLanguage('fr')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">Français</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. شاشة التسجيل (الخطوة 1 - مصححة) -->
+    <!-- ========================================== -->
+    <div id="auth-step-1" class="hidden-view flex flex-col items-center justify-center w-full h-full p-6 max-w-md mx-auto absolute z-30 bg-dark-900">
+        <div class="w-full glass-panel p-6 rounded-2xl shadow-lg shadow-gold-500/20">
+            <h2 id="title-step1" class="text-2xl text-gold-400 font-bold mb-6 text-center">التسجيل / الدخول</h2>
+            <div class="space-y-4">
+                <input type="email" id="email-input" placeholder="البريد الإلكتروني" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-left" dir="ltr">
+                
+                <!-- حقل كلمة المرور الذي سقط سهواً -->
+                <input type="password" id="password-input" placeholder="كلمة المرور" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-left" dir="ltr">
+                
+                <input type="tel" id="phone-input" placeholder="رقم الهاتف (مع رمز الدولة +)" oninput="validateForm()" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-left" dir="ltr">
+                
+                <button onclick="submitAuth()" id="btn-send-otp" disabled class="w-full bg-gray-600 text-gray-400 p-3 rounded-xl font-bold transition">دخول / تسجيل</button>
+            </div>
+            <button onclick="showView('lang-view')" id="btn-back-lang" class="w-full bg-dark-800 text-white p-3 rounded-xl mt-4 border border-gray-600">رجوع</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. شاشة إدخال الرمز (الخطوة 2) -->
+    <!-- ========================================== -->
+    <div id="auth-step-2" class="hidden-view flex flex-col items-center justify-center w-full h-full p-6 max-w-md mx-auto absolute z-20 bg-dark-900">
+        <div class="w-full glass-panel p-6 rounded-2xl shadow-lg shadow-gold-500/20">
+            <h2 id="title-step2" class="text-xl text-gold-400 font-bold mb-4 text-center">أدخل الرمز (OTP)</h2>
+            <p class="text-xs text-gray-400 text-center mb-4">تحقق من مجلد Spam إذا لم تجد الرسالة</p>
+            <input type="text" id="otp-input" placeholder="123456" maxlength="6" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl text-center text-2xl tracking-widest outline-none focus:border-gold-500 mb-4">
+            <button onclick="verifyOTP()" id="btn-verify-otp" class="w-full bg-gold-500 text-dark-900 p-3 rounded-xl font-bold hover:bg-gold-400">تأكيد الرمز</button>
+            <button onclick="showView('auth-step-1')" id="btn-back-auth" class="w-full text-gray-400 mt-4 underline text-sm">تعديل البريد/الرقم</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. شاشة التطبيق الرئيسية -->
+    <!-- ========================================== -->
+    <div id="app-view" class="hidden-view flex flex-col w-full h-full absolute z-10 bg-dark-900">
+        <header class="flex justify-between items-center p-4 glass-panel border-b-0 shadow-md">
+            <div class="flex items-center gap-2">
+                <i class="ph-fill ph-crown text-gold-500 text-2xl"></i>
+                <span class="font-bold text-gold-400">goldenChat</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span id="user-status" class="text-xs text-gray-300">متصل</span>
+                </div>
+                <button onclick="startCall()" class="p-2 bg-dark-800 rounded-full text-gold-400"><i class="ph ph-phone-call text-xl"></i></button>
+            </div>
+        </header>
+
+        <div class="p-2 bg-dark-800 border-b border-gray-700 overflow-x-auto flex gap-2" id="channels-list"></div>
+
+        <main class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-box">
+            <div class="text-center text-gray-500 text-sm mt-10" id="welcome-msg">مرحباً بك في goldenChat!</div>
+        </main>
+
+        <footer class="p-3 glass-panel border-t-0 flex items-center gap-2">
+            <label class="p-3 bg-dark-800 rounded-xl text-gold-400 cursor-pointer">
+                <i class="ph ph-paperclip text-xl"></i>
+                <input type="file" id="media-upload" class="hidden" accept="image/*,video/*" onchange="handleFileUpload(event)">
+            </label>
+            <input type="text" id="msg-input" placeholder="اكتب رسالة..." class="flex-1 bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500">
+            <button onclick="sendMessage()" class="p-3 bg-gold-500 text-dark-900 rounded-xl font-bold"><i class="ph-fill ph-paper-plane-right text-xl"></i></button>
+        </footer>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- سكربت التطبيق الكامل -->
+    <!-- ========================================== -->
+    <script>
+        const dict = {
+            ar: {
+                step1Title: "التسجيل / الدخول", email: "البريد الإلكتروني", pass: "كلمة المرور", phone: "رقم الهاتف (إجباري)", 
+                send: "دخول / تسجيل", back: "رجوع", step2Title: "أدخل الرمز", verify: "تأكيد", 
+                offline: "انقطع الاتصال بالإنترنت...", online: "متصل", msgPlaceholder: "اكتب رسالة...",
+                fillAll: "الرجاء إكمال جميع الحقول", dir: "rtl"
+            },
+            en: {
+                step1Title: "Login / Register", email: "Email", pass: "Password", phone: "Phone Number (Required)", 
+                send: "Login / Register", back: "Back", step2Title: "Enter OTP", verify: "Verify", 
+                offline: "No Internet Connection...", online: "Online", msgPlaceholder: "Type a message...",
+                fillAll: "Please fill all fields", dir: "ltr"
+            },
+            fr: {
+                step1Title: "Connexion / Inscription", email: "E-mail", pass: "Mot de passe", phone: "Numéro (Obligatoire)", 
+                send: "Connexion / Inscription", back: "Retour", step2Title: "Entrez le code", verify: "Vérifier", 
+                offline: "Pas de connexion internet...", online: "En ligne", msgPlaceholder: "Écrire un message...",
+                fillAll: "Veuillez remplir tous les champs", dir: "ltr"
+            }
+        };
+
+        let currentLang = navigator.language.startsWith('ar') ? 'ar' : 'en';
+
+        const SUPABASE_URL = 'https://vfysgxgjahaojrtdagbj.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_aRu1BBu5Pb29tq-fNYSZIA_PeSrrpoC';
+        const AGORA_APP_ID = '51bbd33de1714538936e409f5f050768';
+        
+        let supabaseClient = null;
+        let currentUser = null;
+        let tempPhone = "";
+
+        function showView(viewId) {
+            ['lang-view', 'auth-step-1', 'auth-step-2', 'app-view'].forEach(id => {
+                document.getElementById(id).classList.add('hidden-view');
+            });
+            document.getElementById(viewId).classList.remove('hidden-view');
+        }
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            const d = dict[lang];
+            
+            document.getElementById('html-root').setAttribute('dir', d.dir);
+            document.getElementById('html-root').setAttribute('lang', lang);
+            
+            document.getElementById('title-step1').innerText = d.step1Title;
+            document.getElementById('email-input').placeholder = d.email;
+            document.getElementById('password-input').placeholder = d.pass;
+            document.getElementById('phone-input').placeholder = d.phone;
+            document.getElementById('btn-send-otp').innerText = d.send;
+            document.getElementById('btn-back-lang').innerText = d.back;
+            document.getElementById('title-step2').innerText = d.step2Title;
+            document.getElementById('btn-verify-otp').innerText = d.verify;
+            document.getElementById('offline-text').innerText = d.offline;
+            document.getElementById('user-status').innerText = d.online;
+            document.getElementById('msg-input').placeholder = d.msgPlaceholder;
+
+            showView('auth-step-1');
+            initDatabaseSafe();
+        }
+
+        function initDatabaseSafe() {
+            if (supabaseClient) return;
+            try {
+                if (window.supabase) {
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    checkSession(); 
+                } else {
+                    setTimeout(initDatabaseSafe, 1000); 
+                }
+            } catch (error) { console.error("خطأ:", error); }
+        }
+
+        function validateForm() {
+            const email = document.getElementById('email-input').value;
+            const pass = document.getElementById('password-input').value;
+            const phone = document.getElementById('phone-input').value;
+            const btn = document.getElementById('btn-send-otp');
+            
+            if (phone.length >= 8 && email.length > 3 && pass.length >= 6) {
+                btn.disabled = false;
+                btn.classList.remove('bg-gray-600', 'text-gray-400');
+                btn.classList.add('bg-gold-500', 'text-dark-900', 'hover:bg-gold-400');
+            } else {
+                btn.disabled = true;
+                btn.classList.add('bg-gray-600', 'text-gray-400');
+                btn.classList.remove('bg-gold-500', 'text-dark-900', 'hover:bg-gold-400');
+            }
+        }
+
+        // أضفنا هذا لتفعيل الزر عند الكتابة في أي حقل
+        document.getElementById('email-input').addEventListener('input', validateForm);
+        document.getElementById('password-input').addEventListener('input', validateForm);
+
+        // المنطق الجديد والمصحح للمصادقة
+        async function submitAuth() {
+            if (!supabaseClient) return alert("جاري الاتصال بالسيرفر...");
+            
+            const email = document.getElementById('email-input').value;
+            const password = document.getElementById('password-input').value;
+            tempPhone = document.getElementById('phone-input').value;
+            
+            const btn = document.getElementById('btn-send-otp');
+            btn.innerText = "...";
+            
+            try {
+                // 1. نحاول إنشاء الحساب أولاً
+                const { data, error } = await supabaseClient.auth.signUp({ 
+                    email: email,
+                    password: password,
+                    options: { data: { phone_number: tempPhone } }
+                });
+                
+                if (error) {
+                    // إذا كان الحساب موجوداً، نقوم بتسجيل الدخول مباشرة
+                    if (error.message.includes("already registered") || error.message.includes("User already exists")) {
+                        const { data: loginData, error: loginError } = await supabaseClient.auth.signInWithPassword({
+                            email: email,
+                            password: password
+                        });
+                        
+                        if (loginError) throw loginError;
+                        
+                        // تسجيل دخول ناجح (مستخدم قديم)
+                        currentUser = loginData.user;
+                        showView('app-view');
+                        initAppFeatures();
+                        return;
+                    }
+                    throw error;
+                }
+                
+                // مستخدم جديد: تم الإرسال للبريد، نعرض شاشة الرمز
+                alert("تم إرسال الرمز! تحقق من مجلد (Spam) إذا لم تجده في البريد الوارد.");
+                showView('auth-step-2');
+                
+            } catch (err) {
+                alert("خطأ: " + err.message);
+            } finally {
+                btn.innerText = dict[currentLang].send;
+            }
+        }
+
+        async function verifyOTP() {
+            const email = document.getElementById('email-input').value;
+            const otp = document.getElementById('otp-input').value;
+            try {
+                // نستخدم type: 'signup' لأن الرمز أُرسل بناءً على إنشاء الحساب
+                const { data, error } = await supabaseClient.auth.verifyOtp({ email, token: otp, type: 'signup' });
+                if (error) throw error;
+                
+                currentUser = data.user;
+                showView('app-view');
+                initAppFeatures();
+            } catch (err) {
+                alert("الرمز غير صحيح أو انتهت صلاحيته.");
+            }
+        }
+
+        async function checkSession() {
+            const { data } = await supabaseClient.auth.getSession();
+            if (data.session) {
+                currentUser = data.session.user;
+                showView('app-view');
+                initAppFeatures();
+            }
+        }
+
+        function initAppFeatures() {
+            pinOfficialChannel();
+            subscribeToMessages();
+        }
+
+        function pinOfficialChannel() {
+            document.getElementById('channels-list').innerHTML = `
+                <div class="flex-shrink-0 bg-gold-600/20 border border-gold-500 p-2 rounded-xl flex items-center gap-2 cursor-pointer shadow-lg shadow-gold-500/10">
+                    <i class="ph-fill ph-push-pin text-gold-400"></i>
+                    <span class="font-bold text-gold-400 text-sm">القناة الرسمية</span>
+                </div>`;
+        }
+
+        function subscribeToMessages() {
+            if (!supabaseClient) return;
+            supabaseClient.channel('public:messages')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    displayMessage(payload.new);
+                }).subscribe();
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            if (file.type.startsWith('video/')) {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = function() {
+                    window.URL.revokeObjectURL(video.src);
+                    if (video.duration > 180) { alert("الفيديو يتجاوز 3 دقائق"); return; }
+                }
+                video.src = URL.createObjectURL(file);
+            }
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('msg-input');
+            if (input.value.trim() !== '') {
+                displayMessage({ text: input.value, isMine: true });
+                input.value = '';
+            }
+        }
+
+        function displayMessage(msg) {
+            const box = document.getElementById('chat-box');
+            const align = msg.isMine ? 'justify-end' : 'justify-start';
+            const bg = msg.isMine ? 'bg-gold-500 text-dark-900' : 'bg-dark-800 border border-gray-700 text-white';
+            const radius = msg.isMine ? 'rounded-tl-2xl rounded-bl-2xl rounded-tr-2xl' : 'rounded-tr-2xl rounded-br-2xl rounded-tl-2xl';
+            
+            box.innerHTML += `<div class="flex w-full ${align}"><div class="max-w-[75%] p-3 ${bg} ${radius} shadow-md">${msg.text}</div></div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        async function startCall() {
+            try {
+                const track = await window.AgoraRTC.createMicrophoneAudioTrack();
+                alert("تم الوصول للميكروفون، جاري بدء المكالمة...");
+            } catch (err) { alert("يرجى السماح بالوصول للميكروفون."); }
+        }
+
+        window.addEventListener('offline', () => document.getElementById('offline-bar').style.top = '0px');
+        window.addEventListener('online', () => document.getElementById('offline-bar').style.top = '-50px');
+    </script>
+</body>
+</html>

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" id="html-root">
+<head>
+    <meta charset="UTF-8">
+    <!-- إعدادات الشاشة (Mobile-First) ومنع التكبير التلقائي -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>goldenChat</title>
+    
+    <!-- المكتبات الخارجية -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- استدعاء Supabase و Agora بشكل غير متزامن (async) لمنع حظر الصفحة -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js" async></script>
+    
+    <!-- الثيم الأساسي (Golden & Dark Theme) -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gold: { 400: '#FBBF24', 500: '#F59E0B', 600: '#D97706' },
+                        dark: { 800: '#1F2937', 900: '#111827' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700&display=swap');
+        body { font-family: 'Tajawal', sans-serif; background-color: #111827; color: white; overflow: hidden; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #F59E0B; border-radius: 10px; }
+        .glass-panel { background: rgba(31, 41, 55, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(245, 158, 11, 0.2); }
+        .hidden-view { display: none !important; }
+        #offline-bar { transition: top 0.3s ease; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col relative">
+
+    <!-- شريط تنبيه انقطاع الإنترنت -->
+    <div id="offline-bar" class="absolute top-[-50px] left-0 w-full bg-red-600 text-white text-center py-2 font-bold z-50">
+        <i class="ph ph-wifi-x mr-2"></i> <span id="offline-text">جاري إعادة الاتصال بالإنترنت...</span>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 1. شاشة اختيار اللغة (محمية ومستقلة) -->
+    <!-- ========================================== -->
+    <div id="lang-view" class="flex flex-col items-center justify-center w-full h-full p-6 absolute z-40 bg-dark-900">
+        <i class="ph-fill ph-crown text-gold-500 text-7xl mb-4"></i>
+        <h1 class="text-3xl font-bold text-gold-400 mb-8">goldenChat</h1>
+        <div class="space-y-4 w-full max-w-xs">
+            <button onclick="setLanguage('ar')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">العربية</button>
+            <button onclick="setLanguage('en')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">English</button>
+            <button onclick="setLanguage('fr')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">Français</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2. شاشة التسجيل (الخطوة 1) -->
+    <!-- ========================================== -->
+    <div id="auth-step-1" class="hidden-view flex flex-col items-center justify-center w-full h-full p-6 max-w-md mx-auto absolute z-30 bg-dark-900">
+        <div class="w-full glass-panel p-6 rounded-2xl shadow-lg shadow-gold-500/20">
+            <h2 id="title-step1" class="text-2xl text-gold-400 font-bold mb-6 text-center">التسجيل / الدخول</h2>
+            <div class="space-y-4">
+                <input type="email" id="email-input" placeholder="البريد الإلكتروني" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-left" dir="ltr">
+                <input type="tel" id="phone-input" placeholder="رقم الهاتف (مع رمز الدولة +)" oninput="validatePhone()" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-left" dir="ltr">
+                <button onclick="sendOTP()" id="btn-send-otp" disabled class="w-full bg-gray-600 text-gray-400 p-3 rounded-xl font-bold transition">إرسال الرمز</button>
+            </div>
+            <button onclick="showView('lang-view')" id="btn-back-lang" class="w-full bg-dark-800 text-white p-3 rounded-xl mt-4 border border-gray-600">رجوع</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 3. شاشة إدخال الرمز (الخطوة 2) -->
+    <!-- ========================================== -->
+    <div id="auth-step-2" class="hidden-view flex flex-col items-center justify-center w-full h-full p-6 max-w-md mx-auto absolute z-20 bg-dark-900">
+        <div class="w-full glass-panel p-6 rounded-2xl shadow-lg shadow-gold-500/20">
+            <h2 id="title-step2" class="text-xl text-gold-400 font-bold mb-4 text-center">أدخل الرمز (OTP)</h2>
+            <input type="text" id="otp-input" placeholder="123456" maxlength="6" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl text-center text-2xl tracking-widest outline-none focus:border-gold-500 mb-4">
+            <button onclick="verifyOTP()" id="btn-verify-otp" class="w-full bg-gold-500 text-dark-900 p-3 rounded-xl font-bold hover:bg-gold-400">تأكيد الرمز</button>
+            <button onclick="showView('auth-step-1')" id="btn-back-auth" class="w-full text-gray-400 mt-4 underline text-sm">تعديل البريد/الرقم</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4. شاشة التطبيق الرئيسية (الدردشة والقنوات) -->
+    <!-- ========================================== -->
+    <div id="app-view" class="hidden-view flex flex-col w-full h-full absolute z-10 bg-dark-900">
+        <!-- الشريط العلوي -->
+        <header class="flex justify-between items-center p-4 glass-panel border-b-0 shadow-md">
+            <div class="flex items-center gap-2">
+                <i class="ph-fill ph-crown text-gold-500 text-2xl"></i>
+                <span class="font-bold text-gold-400">goldenChat</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <span id="user-status" class="text-xs text-gray-300">متصل</span>
+                </div>
+                <button onclick="startCall()" class="p-2 bg-dark-800 rounded-full text-gold-400"><i class="ph ph-phone-call text-xl"></i></button>
+            </div>
+        </header>
+
+        <!-- قائمة القنوات -->
+        <div class="p-2 bg-dark-800 border-b border-gray-700 overflow-x-auto flex gap-2" id="channels-list">
+            <!-- سيتم تثبيت القناة الرسمية هنا برمجياً عبر الجافاسكريبت -->
+        </div>
+
+        <!-- مساحة الدردشة -->
+        <main class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-box">
+            <div class="text-center text-gray-500 text-sm mt-10" id="welcome-msg">مرحباً بك في goldenChat!</div>
+        </main>
+
+        <!-- شريط الإرسال -->
+        <footer class="p-3 glass-panel border-t-0 flex items-center gap-2">
+            <label class="p-3 bg-dark-800 rounded-xl text-gold-400 cursor-pointer">
+                <i class="ph ph-paperclip text-xl"></i>
+                <input type="file" id="media-upload" class="hidden" accept="image/*,video/*" onchange="handleFileUpload(event)">
+            </label>
+            <input type="text" id="msg-input" placeholder="اكتب رسالة..." class="flex-1 bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500">
+            <button onclick="sendMessage()" class="p-3 bg-gold-500 text-dark-900 rounded-xl font-bold"><i class="ph-fill ph-paper-plane-right text-xl"></i></button>
+        </footer>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- سكربت التطبيق الكامل -->
+    <!-- ========================================== -->
+    <script>
+        // --- محرك اللغات (Dictionary Pattern) ---
+        const dict = {
+            ar: {
+                step1Title: "التسجيل / الدخول", email: "البريد الإلكتروني", phone: "رقم الهاتف (إجباري)", 
+                send: "إرسال الرمز", back: "رجوع", step2Title: "أدخل الرمز", verify: "تأكيد", 
+                offline: "انقطع الاتصال بالإنترنت...", online: "متصل", msgPlaceholder: "اكتب رسالة...",
+                errPhone: "رقم الهاتف غير صالح", videoLong: "الفيديو يتجاوز 3 دقائق", dir: "rtl"
+            },
+            en: {
+                step1Title: "Login / Register", email: "Email", phone: "Phone Number (Required)", 
+                send: "Send Code", back: "Back", step2Title: "Enter OTP", verify: "Verify", 
+                offline: "No Internet Connection...", online: "Online", msgPlaceholder: "Type a message...",
+                errPhone: "Invalid phone number", videoLong: "Video exceeds 3 minutes", dir: "ltr"
+            },
+            fr: {
+                step1Title: "Connexion / Inscription", email: "E-mail", phone: "Numéro (Obligatoire)", 
+                send: "Envoyer le code", back: "Retour", step2Title: "Entrez le code", verify: "Vérifier", 
+                offline: "Pas de connexion internet...", online: "En ligne", msgPlaceholder: "Écrire un message...",
+                errPhone: "Numéro invalide", videoLong: "La vidéo dépasse 3 minutes", dir: "ltr"
+            }
+        };
+
+        let currentLang = navigator.language.startsWith('ar') ? 'ar' : 'en';
+
+        // --- المفاتيح وقاعدة البيانات ---
+        const SUPABASE_URL = 'https://vfysgxgjahaojrtdagbj.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_aRu1BBu5Pb29tq-fNYSZIA_PeSrrpoC';
+        const AGORA_APP_ID = '51bbd33de1714538936e409f5f050768';
+        
+        let supabaseClient = null;
+        let currentUser = null;
+        let tempPhone = "";
+
+        // --- 1. إدارة الواجهات واللغة (محمية ومضمونة العمل فوراً) ---
+        function showView(viewId) {
+            ['lang-view', 'auth-step-1', 'auth-step-2', 'app-view'].forEach(id => {
+                document.getElementById(id).classList.add('hidden-view');
+            });
+            document.getElementById(viewId).classList.remove('hidden-view');
+        }
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            const d = dict[lang];
+            
+            document.getElementById('html-root').setAttribute('dir', d.dir);
+            document.getElementById('html-root').setAttribute('lang', lang);
+            
+            document.getElementById('title-step1').innerText = d.step1Title;
+            document.getElementById('email-input').placeholder = d.email;
+            document.getElementById('phone-input').placeholder = d.phone;
+            document.getElementById('btn-send-otp').innerText = d.send;
+            document.getElementById('btn-back-lang').innerText = d.back;
+            document.getElementById('title-step2').innerText = d.step2Title;
+            document.getElementById('btn-verify-otp').innerText = d.verify;
+            document.getElementById('offline-text').innerText = d.offline;
+            document.getElementById('user-status').innerText = d.online;
+            document.getElementById('msg-input').placeholder = d.msgPlaceholder;
+
+            showView('auth-step-1');
+            
+            // تهيئة قاعدة البيانات في الخلفية بأمان
+            initDatabaseSafe();
+        }
+
+        // --- 2. التهيئة الآمنة لـ Supabase (حل مشكلة تجميد الشاشة) ---
+        function initDatabaseSafe() {
+            if (supabaseClient) return; // تم الاتصال مسبقاً
+            try {
+                if (window.supabase) {
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    checkSession(); // التحقق من الجلسة السابقة
+                } else {
+                    setTimeout(initDatabaseSafe, 1000); // المحاولة لاحقاً إذا تأخر التحميل
+                }
+            } catch (error) {
+                console.error("خطأ في التهيئة:", error);
+            }
+        }
+
+        // --- 3. المصادقة والتحقق من الهاتف ---
+        function validatePhone() {
+            const phone = document.getElementById('phone-input').value;
+            const btn = document.getElementById('btn-send-otp');
+            // التأكد من وجود رقم، ويُفضل أن يبدأ بـ +
+            if (phone.length >= 8) {
+                btn.disabled = false;
+                btn.classList.remove('bg-gray-600', 'text-gray-400');
+                btn.classList.add('bg-gold-500', 'text-dark-900', 'hover:bg-gold-400');
+            } else {
+                btn.disabled = true;
+                btn.classList.add('bg-gray-600', 'text-gray-400');
+                btn.classList.remove('bg-gold-500', 'text-dark-900', 'hover:bg-gold-400');
+            }
+        }
+
+        async function sendOTP() {
+            if (!supabaseClient) return alert("جاري الاتصال بالسيرفر...");
+            
+            const email = document.getElementById('email-input').value;
+            tempPhone = document.getElementById('phone-input').value; // حفظ الرقم مؤقتاً
+            
+            try {
+                // إرسال الرمز وتخزين رقم الهاتف في metadata
+                const { error } = await supabaseClient.auth.signInWithOtp({ 
+                    email: email,
+                    options: { data: { phone_number: tempPhone } }
+                });
+                if (error) throw error;
+                showView('auth-step-2');
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function verifyOTP() {
+            const email = document.getElementById('email-input').value;
+            const otp = document.getElementById('otp-input').value;
+            try {
+                const { data, error } = await supabaseClient.auth.verifyOtp({ email, token: otp, type: 'email' });
+                if (error) throw error;
+                
+                currentUser = data.user;
+                // حفظ الهاتف في جدول profiles هنا إن لزم الأمر
+                showView('app-view');
+                initAppFeatures(); // بدء القنوات، الاستماع اللحظي
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function checkSession() {
+            const { data } = await supabaseClient.auth.getSession();
+            if (data.session) {
+                currentUser = data.session.user;
+                showView('app-view');
+                initAppFeatures();
+            }
+        }
+
+        // --- 4. القناة الرسمية والتحديث اللحظي ---
+        function initAppFeatures() {
+            pinOfficialChannel();
+            subscribeToMessages();
+            playAudioNotification('login'); // صوت دخول
+        }
+
+        function pinOfficialChannel() {
+            const channelsList = document.getElementById('channels-list');
+            // تصميم القناة الرسمية المثبتة برمجياً
+            channelsList.innerHTML = `
+                <div class="flex-shrink-0 bg-gold-600/20 border border-gold-500 p-2 rounded-xl flex items-center gap-2 cursor-pointer shadow-lg shadow-gold-500/10">
+                    <i class="ph-fill ph-push-pin text-gold-400"></i>
+                    <span class="font-bold text-gold-400 text-sm">القناة الرسمية</span>
+                </div>
+            `;
+            // يمكن إضافة كود Auto-Join هنا عبر supabaseClient.from('channel_members').insert(...)
+        }
+
+        function subscribeToMessages() {
+            if (!supabaseClient) return;
+            supabaseClient.channel('public:messages')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    displayMessage(payload.new);
+                    playAudioNotification('msg');
+                })
+                .subscribe();
+        }
+
+        // --- 5. إدارة الوسائط والمؤقت الذكي ---
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.type.startsWith('video/')) {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = function() {
+                    window.URL.revokeObjectURL(video.src);
+                    // فحص المدة (أقل من 3 دقائق = 180 ثانية)
+                    if (video.duration > 180) {
+                        alert(dict[currentLang].videoLong);
+                        return; // إيقاف الرفع
+                    }
+                    uploadMedia(file);
+                }
+                video.src = URL.createObjectURL(file);
+            } else {
+                uploadMedia(file); // للصور
+            }
+        }
+
+        async function uploadMedia(file) {
+            // محاكاة رفع الملف برمجياً
+            console.log("جاري ضغط ورفع الملف...");
+            // بعد الرفع، نفعل المؤقت الذكي للحذف (3 ساعات = 10800000 ميلي ثانية)
+            setTimeout(() => {
+                console.log("إرسال أمر حذف للملف المرفوع للحفاظ على المساحة...");
+                // supabaseClient.storage.from('media').remove([filePath]);
+            }, 10800000);
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('msg-input');
+            if (input.value.trim() !== '') {
+                displayMessage({ text: input.value, isMine: true });
+                input.value = '';
+                // سيتم إرسالها لـ Supabase هنا
+            }
+        }
+
+        function displayMessage(msg) {
+            const box = document.getElementById('chat-box');
+            const align = msg.isMine ? 'justify-end' : 'justify-start';
+            const bg = msg.isMine ? 'bg-gold-500 text-dark-900' : 'bg-dark-800 border border-gray-700 text-white';
+            const radius = msg.isMine ? 'rounded-tl-2xl rounded-bl-2xl rounded-tr-2xl' : 'rounded-tr-2xl rounded-br-2xl rounded-tl-2xl';
+            
+            box.innerHTML += `
+                <div class="flex w-full ${align}">
+                    <div class="max-w-[75%] p-3 ${bg} ${radius} shadow-md">${msg.text}</div>
+                </div>
+            `;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // --- 6. Agora والتأثيرات والمؤشرات ---
+        async function startCall() {
+            try {
+                // طلب الإذن وتهيئة Agora
+                const localAudioTrack = await window.AgoraRTC.createMicrophoneAudioTrack();
+                console.log("تم الوصول للميكروفون، App ID:", AGORA_APP_ID);
+                alert("جاري بدء المكالمة...");
+            } catch (err) {
+                alert("يرجى السماح بالوصول للميكروفون والكاميرا.");
+            }
+        }
+
+        function playAudioNotification(type) {
+            // تشغيل نغمة خفيفة (Beep برمجية لتوفير المساحة)
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(type === 'login' ? 600 : 800, ctx.currentTime);
+            osc.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.1);
+        }
+
+        // حالة الإنترنت (Online/Offline)
+        window.addEventListener('offline', () => {
+            document.getElementById('offline-bar').style.top = '0px';
+        });
+        window.addEventListener('online', () => {
+            document.getElementById('offline-bar').style.top = '-50px';
+        });
+
+    </script>
+</body>
+</html>

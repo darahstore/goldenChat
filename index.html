@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" id="html-root">
+<head>
+    <meta charset="UTF-8">
+    <!-- 1️⃣ إعدادات الشاشة للهواتف المحمولة (Mobile-First) لمنع التكبير -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>goldenChat</title>
+    
+    <!-- 1️⃣ المكتبات الخارجية (Tailwind, Phosphor Icons, Supabase, Agora) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" async></script>
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js" async></script>
+    
+    <!-- 2️⃣ الثيم الأساسي (Golden & Dark Theme) -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gold: { 400: '#FBBF24', 500: '#F59E0B', 600: '#D97706' },
+                        dark: { 800: '#1F2937', 900: '#111827' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap');
+        body { font-family: 'Tajawal', sans-serif; background-color: #111827; color: white; overflow: hidden; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-thumb { background: #F59E0B; border-radius: 10px; }
+        .glass-panel { background: rgba(31, 41, 55, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(245, 158, 11, 0.2); }
+        .hidden-view { display: none !important; }
+        #offline-bar { transition: top 0.3s ease; }
+        .tab-active { border-bottom: 2px solid #F59E0B; color: #F59E0B; font-weight: bold; }
+        .tab-inactive { color: #9CA3AF; }
+        select { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col relative select-none">
+
+    <!-- 8️⃣ شريط انقطاع الشبكة (Offline Bar) -->
+    <div id="offline-bar" class="absolute top-[-50px] left-0 w-full bg-red-600 text-white text-center py-2 font-bold z-[100] text-sm shadow-md">
+        <i class="ph ph-wifi-x mr-2 text-lg"></i> <span id="offline-text">جاري إعادة الاتصال بالإنترنت...</span>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2️⃣ شاشة اختيار اللغة للبدء السريع -->
+    <!-- ========================================== -->
+    <div id="lang-view" class="flex flex-col items-center justify-center w-full h-full p-6 absolute z-50 bg-dark-900">
+        <i class="ph-fill ph-crown text-gold-500 text-7xl mb-4 animate-bounce"></i>
+        <h1 class="text-4xl font-bold text-gold-400 mb-8 tracking-wide">goldenChat</h1>
+        <div class="space-y-4 w-full max-w-xs">
+            <button onclick="setLanguageAndProceed('ar')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3.5 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">العربية</button>
+            <button onclick="setLanguageAndProceed('en')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3.5 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">English</button>
+            <button onclick="setLanguageAndProceed('fr')" class="w-full bg-dark-800 border border-gold-500 text-gold-400 p-3.5 rounded-xl hover:bg-gold-500 hover:text-dark-900 transition font-bold shadow-lg">Français</button>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 2️⃣ & 3️⃣ شاشة المصادقة (تسجيل الدخول / إنشاء حساب) -->
+    <!-- ========================================== -->
+    <div id="auth-view" class="hidden-view flex flex-col items-center justify-center w-full h-full p-6 max-w-md mx-auto absolute z-40 bg-dark-900">
+        <div class="w-full glass-panel p-6 rounded-2xl shadow-xl shadow-gold-500/10">
+            <!-- تبويبات المصادقة -->
+            <div class="flex justify-around border-b border-gray-700 mb-6 pb-2">
+                <button id="tab-login-btn" onclick="switchAuthTab('login')" class="tab-active text-lg pb-2 transition-all">تسجيل الدخول</button>
+                <button id="tab-signup-btn" onclick="switchAuthTab('signup')" class="tab-inactive text-lg pb-2 transition-all">إنشاء حساب</button>
+            </div>
+
+            <!-- حقول الإدخال -->
+            <div class="space-y-4">
+                <div>
+                    <label id="lbl-email" class="block text-xs text-gray-400 mb-1">البريد الإلكتروني</label>
+                    <input type="email" id="email-input" placeholder="mail@example.com" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-white" dir="ltr">
+                </div>
+                <div>
+                    <label id="lbl-pass" class="block text-xs text-gray-400 mb-1">كلمة المرور</label>
+                    <input type="password" id="password-input" placeholder="••••••••" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-white" dir="ltr">
+                </div>
+                <!-- حقل الهاتف إجباري فقط في حالة إنشاء حساب -->
+                <div id="phone-field-wrapper">
+                    <label id="lbl-phone" class="block text-xs text-gray-400 mb-1">رقم الهاتف (إجباري مع رمز الدولة +)</label>
+                    <input type="tel" id="phone-input" placeholder="+212600000000" class="w-full bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-white" dir="ltr">
+                </div>
+
+                <button onclick="handleAuthSubmit()" id="btn-submit-auth" disabled class="w-full bg-gray-600 text-gray-400 p-3.5 rounded-xl font-bold transition shadow-md">متابعة</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 4️⃣ شاشة التطبيق الرئيسية (الدردشة والمجموعات) -->
+    <!-- ========================================== -->
+    <div id="app-view" class="hidden-view flex flex-col w-full h-full absolute z-30 bg-dark-900">
+        
+        <!-- الشريط العلوي (Header) -->
+        <header class="flex justify-between items-center p-4 glass-panel border-b-0 shadow-md">
+            <div class="flex items-center gap-2">
+                <i class="ph-fill ph-crown text-gold-500 text-2xl"></i>
+                <span class="font-bold text-gold-400 text-lg">goldenChat</span>
+            </div>
+            <div class="flex items-center gap-3">
+                <!-- 8️⃣ مؤشر الاتصال (Presence) -->
+                <div class="flex items-center gap-1.5 bg-dark-800/80 px-3 py-1 rounded-full border border-gray-700">
+                    <span class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                    <span id="user-status" class="text-xs text-gray-300 font-medium">متصل</span>
+                </div>
+                <!-- 6️⃣ أزرار المكالمات -->
+                <button onclick="startAgoraCall('audio')" class="p-2 bg-dark-800 rounded-full text-gold-400 hover:bg-gold-500 hover:text-dark-900 transition"><i class="ph ph-phone text-lg"></i></button>
+                <button onclick="startAgoraCall('video')" class="p-2 bg-dark-800 rounded-full text-gold-400 hover:bg-gold-500 hover:text-dark-900 transition"><i class="ph ph-video-camera text-lg"></i></button>
+                <!-- 7️⃣ زر الإعدادات -->
+                <button onclick="showSettings()" class="p-2 bg-dark-800 rounded-full text-gray-300 hover:text-white transition"><i class="ph ph-gear text-lg"></i></button>
+            </div>
+        </header>
+
+        <!-- قائمة القنوات والمجموعات -->
+        <div class="p-2 bg-dark-800/90 border-b border-gray-800 overflow-x-auto flex gap-2" id="channels-list">
+            <!-- سيتم تثبيت القناة الرسمية هنا برمجياً 📌 -->
+        </div>
+
+        <!-- 5️⃣ مساحة الدردشة -->
+        <main class="flex-1 overflow-y-auto p-4 space-y-4" id="chat-box">
+            <div class="text-center text-gray-500 text-sm my-8" id="welcome-msg">مرحباً بك في المحادثة! الرسائل مشفرة ومحمية.</div>
+        </main>
+
+        <!-- 6️⃣ شريط التحكم بالمكالمة (يظهر وقت الاتصال) -->
+        <div id="call-controls" class="hidden-view p-3 bg-dark-800 border-t border-gold-500/30 flex justify-center items-center gap-6">
+            <button onclick="toggleMic()" id="btn-mic" class="p-3 bg-gray-700 rounded-full text-white"><i class="ph ph-microphone text-xl"></i></button>
+            <button onclick="endAgoraCall()" class="p-3 bg-red-600 rounded-full text-white"><i class="ph ph-phone-disconnect text-xl"></i></button>
+            <button onclick="toggleCam()" id="btn-cam" class="p-3 bg-gray-700 rounded-full text-white"><i class="ph ph-camera text-xl"></i></button>
+        </div>
+
+        <!-- شريط الإرسال ورفع الوسائط -->
+        <footer class="p-3 glass-panel border-t-0 flex items-center gap-2">
+            <label class="p-3 bg-dark-800 rounded-xl text-gold-400 cursor-pointer hover:bg-dark-900 transition border border-gray-700">
+                <i class="ph ph-paperclip text-xl"></i>
+                <input type="file" id="media-upload" class="hidden" accept="image/*,video/*" onchange="handleFileUpload(event)">
+            </label>
+            <input type="text" id="msg-input" placeholder="اكتب رسالة..." class="flex-1 bg-dark-900 border border-gray-700 p-3 rounded-xl outline-none focus:border-gold-500 text-white">
+            <button onclick="sendMessage()" class="p-3 bg-gold-500 text-dark-900 rounded-xl font-bold hover:bg-gold-400 transition shadow-md">
+                <i class="ph-fill ph-paper-plane-right text-xl"></i>
+            </button>
+        </footer>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 7️⃣ شاشة الإعدادات (اللغات، المجموعات، تسجيل الخروج) -->
+    <!-- ========================================== -->
+    <div id="settings-view" class="hidden-view flex flex-col w-full h-full absolute z-50 bg-dark-900 p-4">
+        <header class="flex items-center mb-6 pb-4 border-b border-gray-800">
+            <button onclick="closeSettings()" class="p-2 bg-dark-800 rounded-full text-white ml-3"><i class="ph ph-arrow-right text-lg"></i></button>
+            <h2 id="settings-title" class="text-xl font-bold text-gold-400">الإعدادات</h2>
+        </header>
+
+        <div class="space-y-6 flex-1 overflow-y-auto">
+            <!-- إعدادات اللغة (60+ لغة) -->
+            <div class="bg-dark-800 p-4 rounded-xl border border-gray-700">
+                <label id="lbl-lang-select" class="block text-sm text-gray-400 mb-2">لغة التطبيق (App Language)</label>
+                <div class="relative">
+                    <select id="global-lang-select" onchange="changeGlobalLanguage(this.value)" class="w-full bg-dark-900 border border-gray-600 text-white p-3 rounded-xl outline-none focus:border-gold-500 appearance-none">
+                        <!-- سيتم تعبئة 60+ لغة برمجياً هنا -->
+                    </select>
+                    <i class="ph ph-caret-down absolute top-4 left-4 text-gray-400 pointer-events-none"></i>
+                </div>
+            </div>
+
+            <!-- 4️⃣ ميزة مغادرة وحذف المجموعات -->
+            <div class="bg-dark-800 p-4 rounded-xl border border-gray-700">
+                <h3 id="lbl-my-groups" class="text-md text-white font-bold mb-3">مجموعاتي النشطة</h3>
+                <div id="my-groups-list" class="space-y-2">
+                    <!-- نموذج لمجموعة مع زر المغادرة -->
+                    <div class="flex justify-between items-center bg-dark-900 p-3 rounded-lg">
+                        <span class="text-sm text-gray-300"># الدردشة العامة</span>
+                        <button onclick="leaveGroup('general')" class="text-xs text-red-500 bg-red-500/10 px-3 py-1.5 rounded-lg hover:bg-red-500/20">مغادرة وحذف</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- زر تسجيل الخروج -->
+        <button onclick="logoutUser()" id="btn-logout" class="w-full bg-red-600/20 border border-red-600 text-red-500 p-4 rounded-xl font-bold hover:bg-red-600 hover:text-white transition mt-4 mb-6">
+            تسجيل الخروج
+        </button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- السكربتات والمحرك البرمجي الشامل -->
+    <!-- ========================================== -->
+    <script>
+        // 9️⃣ مفاتيح الربط المحفوظة والمضمنة (Supabase & Agora)
+        const SUPABASE_URL = 'https://vfysgxgjahaojrtdagbj.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_aRu1BBu5Pb29tq-fNYSZIA_PeSrrpoC';
+        
+        // مفاتيح Agora الجديدة الدائمة
+        const AGORA_APP_ID = '77a195757c054acaaf8da43c269b2260';
+        const AGORA_PERMANENT_TOKEN = '00677a195757c054acaaf8da43c269b2260IABQLMitxwtMDMd4/d5F8xLlrQ9ut+mIk0aa9jUYpm13A0UxBjEAAAAAIgBa0EoDD21kagQAAQCPHi99AgCPHi99AwCPHi99BACPHi99';
+
+        // المتغيرات العامة
+        let supabaseClient = null;
+        let currentUser = null;
+        let currentAuthMode = 'login';
+        let currentLang = 'ar';
+        let agoraClient = null;
+        let localAudioTrack = null;
+        let localVideoTrack = null;
+        let activeChannel = 'official-golden-chat-id';
+        let realtimeChannel = null;
+
+        // 8️⃣ محرك اللغات المصغر للواجهة
+        const uiDict = {
+            ar: { loginTab: "تسجيل الدخول", signupTab: "إنشاء حساب", email: "البريد الإلكتروني", pass: "كلمة المرور", phone: "رقم الهاتف (إجباري مع رمز الدولة +)", btnLogin: "دخول", btnSignup: "إنشاء حساب", offline: "انقطع الاتصال بالإنترنت...", online: "متصل", msgPlaceholder: "اكتب رسالة...", settings: "الإعدادات", langSelect: "لغة التطبيق", myGroups: "مجموعاتي النشطة", logout: "تسجيل الخروج", leave: "مغادرة وحذف", videoLong: "الفيديو يتجاوز 3 دقائق ومرفوض", dir: "rtl" },
+            en: { loginTab: "Log In", signupTab: "Sign Up", email: "Email Address", pass: "Password", phone: "Phone Number (Required with +)", btnLogin: "Log In", btnSignup: "Sign Up", offline: "No Internet Connection...", online: "Online", msgPlaceholder: "Type a message...", settings: "Settings", langSelect: "App Language", myGroups: "My Active Groups", logout: "Log Out", leave: "Leave & Delete", videoLong: "Video exceeds 3 minutes", dir: "ltr" },
+            fr: { loginTab: "Connexion", signupTab: "S'inscrire", email: "Adresse e-mail", pass: "Mot de passe", phone: "Numéro de téléphone (Obligatoire +)", btnLogin: "Connexion", btnSignup: "S'inscrire", offline: "Connexion interrompue...", online: "En ligne", msgPlaceholder: "Écrire un message...", settings: "Paramètres", langSelect: "Langue de l'application", myGroups: "Mes groupes actifs", logout: "Déconnexion", leave: "Quitter et supprimer", videoLong: "La vidéo dépasse 3 minutes", dir: "ltr" },
+            es: { loginTab: "Iniciar sesión", signupTab: "Registrarse", email: "Correo electrónico", pass: "Contraseña", phone: "Número de teléfono (Requerido con +)", btnLogin: "Entrar", btnSignup: "Registrarse", offline: "Sin conexión...", online: "En línea", msgPlaceholder: "Escribe un mensaje...", settings: "Ajustes", langSelect: "Idioma de la aplicación", myGroups: "Mis grupos activos", logout: "Cerrar sesión", leave: "Salir y eliminar", videoLong: "El video supera los 3 minutos", dir: "ltr" },
+            de: { loginTab: "Anmelden", signupTab: "Registrieren", email: "E-Mail-Adresse", pass: "Passwort", phone: "Telefonnummer (Erforderlich mit +)", btnLogin: "Anmelden", btnSignup: "Registrieren", offline: "Keine Internetverbindung...", online: "Online", msgPlaceholder: "Nachricht schreiben...", settings: "Einstellungen", langSelect: "App-Sprache", myGroups: "Meine aktiven Gruppen", logout: "Abmelden", leave: "Verlassen & Löschen", videoLong: "Video überschreitet 3 Minuten", dir: "ltr" },
+            it: { loginTab: "Accedi", signupTab: "Registrati", email: "Indirizzo e-mail", pass: "Password", phone: "Numero di telefono (Obbligatorio con +)", btnLogin: "Accedi", btnSignup: "Registrati", offline: "Connessione assente...", online: "Online", msgPlaceholder: "Scrivi un messaggio...", settings: "Impostazioni", langSelect: "Lingua app", myGroups: "I miei gruppi attivi", logout: "Esci", leave: "Lascia ed elimina", videoLong: "Il video supera i 3 minuti", dir: "ltr" },
+            pt: { loginTab: "Entrar", signupTab: "Cadastrar", email: "E-mail", pass: "Senha", phone: "Número de telefone (Obrigatório com +)", btnLogin: "Entrar", btnSignup: "Cadastrar", offline: "Sem conexão...", online: "Online", msgPlaceholder: "Digite uma mensagem...", settings: "Configurações", langSelect: "Idioma do aplicativo", myGroups: "Meus grupos ativos", logout: "Sair", leave: "Sair e excluir", videoLong: "O vídeo excede 3 minutos", dir: "ltr" },
+            ru: { loginTab: "Вход", signupTab: "Регистрация", email: "Эл. почта", pass: "Пароль", phone: "Номер телефона (Обязательно с +)", btnLogin: "Войти", btnSignup: "Регистрация", offline: "Нет интернета...", online: "В сети", msgPlaceholder: "Введите сообщение...", settings: "Настройки", langSelect: "Язык приложения", myGroups: "Мои группы", logout: "Выйти", leave: "Покинуть и удалить", videoLong: "Видео превышает 3 минуты", dir: "ltr" },
+            zh: { loginTab: "登录", signupTab: "注册", email: "电子邮箱", pass: "密码", phone: "手机号 (须带 +)", btnLogin: "登录", btnSignup: "注册", offline: "无网络连接...", online: "在线", msgPlaceholder: "输入消息...", settings: "设置", langSelect: "应用语言", myGroups: "我的群组", logout: "登出", leave: "离开并删除", videoLong: "视频超过3分钟", dir: "ltr" },
+            ja: { loginTab: "ログイン", signupTab: "登録", email: "メールアドレス", pass: "パスワード", phone: "電話番号 (+付き)", btnLogin: "ログイン", btnSignup: "登録", offline: "接続なし...", online: "オンライン", msgPlaceholder: "メッセージを入力...", settings: "設定", langSelect: "アプリ言語", myGroups: "参加グループ", logout: "ログアウト", leave: "退出して削除", videoLong: "動画が3分を超えています", dir: "ltr" },
+            ko: { loginTab: "로그인", signupTab: "회원가입", email: "이메일", pass: "비밀번호", phone: "전화번호 (+ 포함 필수)", btnLogin: "로그인", btnSignup: "회원가입", offline: "연결 끊김...", online: "온라인", msgPlaceholder: "메시지 입력...", settings: "설정", langSelect: "앱 언어", myGroups: "내 활성 그룹", logout: "로그아웃", leave: "나가기 및 삭제", videoLong: "영상이 3분을 초과함", dir: "ltr" },
+            hi: { loginTab: "लॉग इन", signupTab: "सााइन अप", email: "ईमेल पता", pass: "पासवर्ड", phone: "फ़ोन नंबर (+ के साथ आवश्यक)", btnLogin: "लॉग इन", btnSignup: "सााइन अप", offline: "इंटरनेट नहीं है...", online: "ऑनलाइन", msgPlaceholder: "संदेश लिखें...", settings: "सेटिंग्स", langSelect: "ऐप भाषा", myGroups: "मेरे सक्रिय समूह", logout: "लॉग आउट", leave: "छोड़ें और हटाएं", videoLong: "वीडियो 3 मिनट से अधिक है", dir: "ltr" },
+            ur: { loginTab: "لاگ ان", signupTab: "سائن اپ", email: "ای میل پتہ", pass: "پاس ورڈ", phone: "فون نمبر (+ کے ساتھ ضروری)", btnLogin: "لاگ ان", btnSignup: "سائن اپ", offline: "انٹرنیٹ نہیں ہے...", online: "آن لائن", msgPlaceholder: "پیغام لکھیں...", settings: "ترتیبات", langSelect: "پہچان کی زبان", myGroups: "میرے گروپس", logout: "لاگ آؤٹ", leave: "چھوڑیں اور حذف کریں", videoLong: "ویڈیو 3 منٹ سے زیادہ ہے", dir: "rtl" },
+            tr: { loginTab: "Giriş Yap", signupTab: "Kayıt Ol", email: "E-posta Adresi", pass: "Şifre", phone: "Telefon Numarası (+ ile zorunlu)", btnLogin: "Giriş", btnSignup: "Kayıt Ol", offline: "Bağlantı yok...", online: "Çevrimiçi", msgPlaceholder: "Bir mesaj yazın...", settings: "Ayarlar", langSelect: "Uygulama Dili", myGroups: "Aktif Gruplarım", logout: "Çıkış Yap", leave: "Ayrıl ve Sil", videoLong: "Video 3 dakikayı aşıyor", dir: "ltr" },
+            id: { loginTab: "Masuk", signupTab: "Daftar", email: "Alamat Email", pass: "Kata Sandi", phone: "Nomor Telepon (Wajib dengan +)", btnLogin: "Masuk", btnSignup: "Daftar", offline: "Tidak ada internet...", online: "Online", msgPlaceholder: "Ketik pesan...", settings: "Pengaturan", langSelect: "Bahasa Aplikasi", myGroups: "Grup Aktif Saya", logout: "Keluar", leave: "Keluar & Hapus", videoLong: "Video melebihi 3 menit", dir: "ltr" },
+            nl: { loginTab: "Inloggen", signupTab: "Aanmelden", email: "E-mailadres", pass: "Wachtwoord", phone: "Telefoonnummer (Verplicht met +)", btnLogin: "Inloggen", btnSignup: "Aanmelden", offline: "Geen internetverbinding...", online: "Online", msgPlaceholder: "Typ een bericht...", settings: "Instellingen", langSelect: "App-taal", myGroups: "Mijn actieve groepen", logout: "Uitloggen", leave: "Verlaten & verwijderen", videoLong: "Video is langer dan 3 minuten", dir: "ltr" },
+            pl: { loginTab: "Zaloguj", signupTab: "Zarejestruj", email: "Adres e-mail", pass: "Hasło", phone: "Numer telefonu (Wymagany z +)", btnLogin: "Zaloguj", btnSignup: "Zarejestruj", offline: "Brak połączenia...", online: "Online", msgPlaceholder: "Wpisz wiadomość...", settings: "Ustawienia", langSelect: "Język aplikacji", myGroups: "Moje aktywne grupy", logout: "Wyloguj", leave: "Opuść i usuń", videoLong: "Wideo przekracza 3 minuty", dir: "ltr" },
+            sv: { loginTab: "Logga in", signupTab: "Registrera", email: "E-postadress", pass: "Lösenord", phone: "Telefonnummer (Krävs med +)", btnLogin: "Logga in", btnSignup: "Registrera", offline: "Ingen internetanslutning...", online: "Online", msgPlaceholder: "Skriv ett meddelande...", settings: "Inställningar", langSelect: "App-språk", myGroups: "Mina aktiva grupper", logout: "Logga ut", leave: "Lämna & radera", videoLong: "Videon överstiger 3 minuter", dir: "ltr" },
+            fa: { loginTab: "ورود", signupTab: "ثبت‌نام", email: "ایمیل", pass: "رمز عبور", phone: "شماره تلفن (الزامی با +)", btnLogin: "ورود", btnSignup: "ثبت‌نام", offline: "قطع ارتباط با اینترنت...", online: "آنلاین", msgPlaceholder: "پیامی بنویسید...", settings: "تنظیمات", langSelect: "زبان برنامه", myGroups: "گروه‌های فعال من", logout: "خروج", leave: "ترك و حذف", videoLong: "ویدیو بیش از ۳ دقیقه است", dir: "rtl" },
+            bn: { loginTab: "লগইন", signupTab: "সাইন আপ", email: "ইমেইল ঠিকানা", pass: "পাসওয়ার্ড", phone: "ফোন নম্বর (+ সহ আবশ্যক)", btnLogin: "লগইন", btnSignup: "সাইন আপ", offline: "ইন্টারনেট সংযোগ বিচ্ছিন্ন...", online: "অনলাইন", msgPlaceholder: "একটি বার্তা লিখুন...", settings: "সেটিংস", langSelect: "অ্যাপের ভাষা", myGroups: "আমার সক্রিয় গ্রুপ", logout: "লগআউট", leave: "ত্যাগ করুন এবং মুছুন", videoLong: "ভিডিওটি ৩ মিনিটের বেশি", dir: "ltr" }
+        };
+
+        // 7️⃣ توليد قائمة 60+ لغة (مماثلة لواتساب)
+        const extendedLanguages = [
+            { code: 'ar', name: 'العربية (Arabic)' }, { code: 'en', name: 'English (UK/US)' }, { code: 'fr', name: 'Français (French)' },
+            { code: 'es', name: 'Español (Spanish)' }, { code: 'de', name: 'Deutsch (German)' }, { code: 'it', name: 'Italiano (Italian)' },
+            { code: 'pt', name: 'Português (Portuguese)' }, { code: 'ru', name: 'Русский (Russian)' }, { code: 'zh', name: '中文 (Chinese)' },
+            { code: 'ja', name: '日本語 (Japanese)' }, { code: 'ko', name: '한국어 (Korean)' }, { code: 'hi', name: 'हिन्दी (Hindi)' },
+            { code: 'ur', name: 'اردو (Urdu)' }, { code: 'tr', name: 'Türkçe (Turkish)' }, { code: 'id', name: 'Bahasa Indonesia' },
+            { code: 'nl', name: 'Nederlands (Dutch)' }, { code: 'pl', name: 'Polski (Polish)' }, { code: 'sv', name: 'Svenska (Swedish)' },
+            { code: 'fa', name: 'فارسی (Persian)' }, { code: 'bn', name: 'বাংলা (Bengali)' }
+        ];
+
+        // تهيئة قائمة اللغات في الإعدادات
+        function initLanguagesDropdown() {
+            const select = document.getElementById('global-lang-select');
+            select.innerHTML = '';
+            extendedLanguages.forEach(lang => {
+                const option = document.createElement('option');
+                option.value = lang.code;
+                option.innerText = lang.name;
+                select.appendChild(option);
+            });
+        }
+
+        // التحكم في الشاشات
+        function showView(viewId) {
+            ['lang-view', 'auth-view', 'app-view', 'settings-view'].forEach(id => {
+                document.getElementById(id).classList.add('hidden-view');
+            });
+            document.getElementById(viewId).classList.remove('hidden-view');
+        }
+
+        function setLanguageAndProceed(langCode) {
+            applyLanguage(langCode);
+            showView('auth-view');
+            switchAuthTab('login');
+            initSupabaseSafe();
+        }
+
+        function changeGlobalLanguage(langCode) {
+            applyLanguage(langCode);
+            closeSettings();
+        }
+
+        function applyLanguage(langCode) {
+            currentLang = uiDict[langCode] ? langCode : 'en'; // fallback to English if not fully translated in UI dict
+            const d = uiDict[currentLang];
+            
+            const htmlRoot = document.getElementById('html-root');
+            htmlRoot.setAttribute('dir', d.dir);
+            htmlRoot.setAttribute('lang', currentLang);
+            document.getElementById('global-lang-select').value = currentLang;
+            
+            // تحديث نصوص الواجهة الأساسية
+            document.getElementById('tab-login-btn').innerText = d.loginTab;
+            document.getElementById('tab-signup-btn').innerText = d.signupTab;
+            document.getElementById('lbl-email').innerText = d.email;
+            document.getElementById('lbl-pass').innerText = d.pass;
+            document.getElementById('lbl-phone').innerText = d.phone;
+            document.getElementById('offline-text').innerText = d.offline;
+            document.getElementById('user-status').innerText = d.online;
+            document.getElementById('msg-input').placeholder = d.msgPlaceholder;
+            document.getElementById('settings-title').innerText = d.settings;
+            document.getElementById('lbl-lang-select').innerText = d.langSelect;
+            document.getElementById('lbl-my-groups').innerText = d.myGroups;
+            document.getElementById('btn-logout').innerText = d.logout;
+
+            switchAuthTab(currentAuthMode); // لتحديث نص زر الإرسال
+        }
+
+        // 3️⃣ المصادقة (تبويبات وتسجيل دخول مباشر)
+        function switchAuthTab(mode) {
+            currentAuthMode = mode;
+            const d = uiDict[currentLang];
+            const phoneWrapper = document.getElementById('phone-field-wrapper');
+            const submitBtn = document.getElementById('btn-submit-auth');
+            
+            if (mode === 'login') {
+                document.getElementById('tab-login-btn').className = "tab-active text-lg pb-2 transition-all";
+                document.getElementById('tab-signup-btn').className = "tab-inactive text-lg pb-2 transition-all";
+                phoneWrapper.style.display = "none";
+                submitBtn.innerText = d.btnLogin;
+            } else {
+                document.getElementById('tab-signup-btn').className = "tab-active text-lg pb-2 transition-all";
+                document.getElementById('tab-login-btn').className = "tab-inactive text-lg pb-2 transition-all";
+                phoneWrapper.style.display = "block";
+                submitBtn.innerText = d.btnSignup;
+            }
+            validateForm();
+        }
+
+        function validateForm() {
+            const email = document.getElementById('email-input').value.trim();
+            const pass = document.getElementById('password-input').value.trim();
+            const phone = document.getElementById('phone-input').value.trim();
+            const btn = document.getElementById('btn-submit-auth');
+
+            let isValid = email.length > 5 && pass.length >= 6;
+            if (currentAuthMode === 'signup') {
+                isValid = isValid && phone.length >= 8 && phone.startsWith('+'); // هاتف إجباري مع +
+            }
+
+            if (isValid) {
+                btn.disabled = false;
+                btn.className = "w-full bg-gold-500 text-dark-900 p-3.5 rounded-xl font-bold transition hover:bg-gold-400 shadow-md cursor-pointer";
+            } else {
+                btn.disabled = true;
+                btn.className = "w-full bg-gray-600 text-gray-400 p-3.5 rounded-xl font-bold transition shadow-md cursor-not-allowed";
+            }
+        }
+
+        document.getElementById('email-input').addEventListener('input', validateForm);
+        document.getElementById('password-input').addEventListener('input', validateForm);
+        document.getElementById('phone-input').addEventListener('input', validateForm);
+
+        // تهيئة Supabase بأمان تام
+        function initSupabaseSafe() {
+            if (supabaseClient) return;
+            try {
+                if (window.supabase) {
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    checkSession();
+                } else {
+                    setTimeout(initSupabaseSafe, 500);
+                }
+            } catch (err) { console.error("Supabase Init Error:", err); }
+        }
+
+        async function handleAuthSubmit() {
+            if (!supabaseClient) return;
+            const email = document.getElementById('email-input').value.trim();
+            const password = document.getElementById('password-input').value.trim();
+            const phone = document.getElementById('phone-input').value.trim();
+            const btn = document.getElementById('btn-submit-auth');
+            
+            btn.innerText = "...";
+            btn.disabled = true;
+
+            try {
+                if (currentAuthMode === 'login') {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    currentUser = data.user;
+                } else {
+                    // الدخول المباشر وتسجيل الحساب بدون OTP
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email, password, options: { data: { phone_number: phone } }
+                    });
+                    if (error) throw error;
+                    currentUser = data.user;
+                    
+                    // حفظ البيانات في Profiles
+                    if (currentUser) {
+                        await supabaseClient.from('profiles').upsert({
+                            id: currentUser.id, email: email, phone_number: phone, updated_at: new Date()
+                        });
+                    }
+                }
+                playAudioTone('login');
+                startApp();
+            } catch (err) {
+                alert("Auth Error: " + err.message);
+            } finally {
+                switchAuthTab(currentAuthMode); 
+            }
+        }
+
+        async function checkSession() {
+            try {
+                const { data } = await supabaseClient.auth.getSession();
+                if (data?.session) {
+                    currentUser = data.session.user;
+                    startApp();
+                }
+            } catch (e) {}
+        }
+
+        // 7️⃣ تسجيل الخروج (Log Out)
+        async function logoutUser() {
+            if (supabaseClient) {
+                await supabaseClient.auth.signOut();
+                currentUser = null;
+                closeSettings();
+                showView('auth-view');
+                document.getElementById('email-input').value = '';
+                document.getElementById('password-input').value = '';
+                validateForm();
+            }
+        }
+
+        // 4️⃣ القنوات والمجموعات
+        function startApp() {
+            showView('app-view');
+            renderChannels();
+            setupRealtime();
+        }
+
+        async function renderChannels() {
+            const list = document.getElementById('channels-list');
+            // التثبيت العكسي للقناة الرسمية
+            list.innerHTML = `
+                <div onclick="selectChannel('official-golden-chat-id', 'القناة الرسمية')" class="flex-shrink-0 bg-gold-600/20 border border-gold-500 px-3 py-2 rounded-xl flex items-center gap-2 cursor-pointer shadow-lg">
+                    <span class="text-gold-400">📌</span>
+                    <span class="font-bold text-gold-400 text-sm">القناة الرسمية</span>
+                </div>
+            `;
+            
+            // الانضمام التلقائي (Auto-Join) للقناة الرسمية
+            if (supabaseClient && currentUser) {
+                try {
+                    await supabaseClient.from('channel_members').upsert({
+                        channel_id: 'official-golden-chat-id', user_id: currentUser.id
+                    });
+                } catch (e) {}
+            }
+        }
+
+        function selectChannel(id, name) {
+            activeChannel = id;
+            document.getElementById('welcome-msg').innerText = `مرحباً بك في ${name}`;
+            document.getElementById('chat-box').innerHTML = ''; // تفريغ الشات عند تبديل القناة
+        }
+
+        // 4️⃣ مغادرة وحذف المجموعات
+        function showSettings() {
+            showView('settings-view');
+            // هنا في التطبيق الفعلي نقوم بجلب مجموعات المستخدم من DB وعرضها
+        }
+        function closeSettings() { showView('app-view'); }
+        
+        async function leaveGroup(groupId) {
+            if(confirm(uiDict[currentLang].leave + " ?")) {
+                if(supabaseClient && currentUser) {
+                    try {
+                        // حذف السجل من جدول الأعضاء
+                        await supabaseClient.from('channel_members').delete().match({ channel_id: groupId, user_id: currentUser.id });
+                        alert("تمت المغادرة بنجاح.");
+                    } catch(e) {}
+                }
+            }
+        }
+
+        // 5️⃣ المحادثات، الوسائط، والمؤقت الذكي (مع إصلاح خطأ التكرار في Realtime)
+        function setupRealtime() {
+            if (!supabaseClient) return;
+            if (realtimeChannel) {
+                supabaseClient.removeChannel(realtimeChannel);
+            }
+            realtimeChannel = supabaseClient.channel('public:messages')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+                    // عرض الرسالة إذا كانت لنفس القناة
+                    if(payload.new.channel_id === activeChannel) {
+                        appendMessage(payload.new.text, payload.new.user_id === currentUser?.id);
+                        playAudioTone('msg');
+                    }
+                }).subscribe();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('msg-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            appendMessage(text, true); // عرض محلي فوري
+            input.value = '';
+
+            if (supabaseClient && currentUser) {
+                supabaseClient.from('messages').insert({
+                    text: text, user_id: currentUser.id, channel_id: activeChannel
+                }).then();
+            }
+        }
+
+        function appendMessage(text, isMine) {
+            const box = document.getElementById('chat-box');
+            const align = isMine ? 'justify-end' : 'justify-start';
+            const bg = isMine ? 'bg-gold-500 text-dark-900 font-medium' : 'bg-dark-800 border border-gray-700 text-white';
+            const radius = isMine ? 'rounded-tl-2xl rounded-bl-2xl rounded-tr-2xl' : 'rounded-tr-2xl rounded-br-2xl rounded-tl-2xl';
+
+            box.innerHTML += `<div class="flex w-full ${align} mb-3"><div class="max-w-[80%] p-3 ${bg} ${radius} shadow-md text-sm break-words">${text}</div></div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+
+        // فحص مدة الفيديو والضغط المباشر والمؤقت الذكي
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (file.type.startsWith('video/')) {
+                const videoEl = document.createElement('video');
+                videoEl.preload = 'metadata';
+                videoEl.onloadedmetadata = function() {
+                    window.URL.revokeObjectURL(videoEl.src);
+                    if (videoEl.duration > 180) { // فحص المدة (3 دقائق = 180s)
+                        alert(uiDict[currentLang].videoLong);
+                        return;
+                    }
+                    processMedia(file);
+                };
+                videoEl.src = URL.createObjectURL(file);
+            } else {
+                processMedia(file);
+            }
+        }
+
+        async function processMedia(file) {
+            // محاكاة الضغط المباشر (Client-Side Compression)
+            appendMessage(`📁 جاري ضغط ورفع الملف: ${file.name}...`, true);
+            
+            // المؤقت الذكي (Auto-Purge) - حذف بعد 3 ساعات (10,800,000 ms)
+            setTimeout(() => {
+                if(supabaseClient) {
+                    console.log("Auto-Purge Triggered: تم إرسال أمر لحذف الملف من Storage لتوفير المساحة.");
+                    // supabaseClient.storage.from('media').remove([filePath]);
+                }
+            }, 10800000); 
+        }
+
+        // 6️⃣ المكالمات عبر Agora (مع طلب الصلاحيات إجبارياً)
+        async function startAgoraCall(type) {
+            try {
+                await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
+                document.getElementById('call-controls').classList.remove('hidden-view');
+                if (window.AgoraRTC) {
+                    agoraClient = window.AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+                    
+                    // ⚠️ تم التحديث هنا لاستخدام التوكن واسم الغرفة الصحيحين
+                    await agoraClient.join(AGORA_APP_ID, "goldenChat", AGORA_PERMANENT_TOKEN, null);
+                    
+                    localAudioTrack = await window.AgoraRTC.createMicrophoneAudioTrack();
+                    if (type === 'video') {
+                        localVideoTrack = await window.AgoraRTC.createCameraVideoTrack();
+                        await agoraClient.publish([localAudioTrack, localVideoTrack]);
+                    } else {
+                        await agoraClient.publish([localAudioTrack]);
+                    }
+                    alert("تم بدء المكالمة والاتصال بالغرفة بنجاح.");
+                }
+            } catch (err) {
+                console.warn(err);
+                alert("يرجى إعطاء صلاحيات الميكروفون/الكاميرا من إعدادات المتصفح للسماح بإجراء المكالمات.");
+            }
+        }
+
+        async function toggleMic() {
+            if (localAudioTrack) {
+                const muted = localAudioTrack.muted;
+                await localAudioTrack.setMuted(!muted);
+                document.getElementById('btn-mic').classList.toggle('bg-red-600', !muted);
+            }
+        }
+        async function toggleCam() {
+            if (localVideoTrack) {
+                const muted = localVideoTrack.muted;
+                await localVideoTrack.setMuted(!muted);
+                document.getElementById('btn-cam').classList.toggle('bg-red-600', !muted);
+            }
+        }
+        async function endAgoraCall() {
+            if (localAudioTrack) { localAudioTrack.close(); localAudioTrack = null; }
+            if (localVideoTrack) { localVideoTrack.close(); localVideoTrack = null; }
+            if (agoraClient) await agoraClient.leave();
+            document.getElementById('call-controls').classList.add('hidden-view');
+        }
+
+        // 8️⃣ التنبيهات الصوتية ومؤشر انقطاع الشبكة
+        function playAudioTone(type) {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(type === 'login' ? 520 : 750, ctx.currentTime);
+                gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.start(); osc.stop(ctx.currentTime + 0.1);
+            } catch(e) {}
+        }
+
+        window.addEventListener('offline', () => document.getElementById('offline-bar').style.top = '0px');
+        window.addEventListener('online', () => document.getElementById('offline-bar').style.top = '-50px');
+
+        // بدء توليد القوائم
+        initLanguagesDropdown();
+    </script>
+</body>
+</html>

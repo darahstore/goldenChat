@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html id="html-root" lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تطبيق الدردشة والمكالمات - النسخة الكاملة</title>
+    
+    <!-- مكتبة Tailwind CSS للتصميم -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- مكتبة Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- مكتبة Agora -->
+    <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+
+    <style>
+        .hidden-view { display: none !important; }
+        .tab-active { border-bottom: 2px solid #eab308; color: #eab308; }
+        .tab-inactive { color: #9ca3af; }
+        .glass-panel { background: rgba(31, 41, 55, 0.7); backdrop-filter: blur(10px); }
+    </style>
+</head>
+<body class="bg-gray-900 text-white font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- 1. شاشة اختيار اللغة -->
+    <div id="language-view" class="flex flex-col items-center justify-center h-full">
+        <h1 class="text-3xl font-bold mb-6 text-yellow-500">اختر لغتك / Choose Language</h1>
+        <select id="global-lang-select" class="p-3 bg-gray-800 rounded-lg text-white mb-6 w-64 text-center border border-gray-600">
+            <!-- سيتم تعبئتها برمجياً بـ 20 لغة -->
+        </select>
+        <button id="btn-continue" class="bg-yellow-500 text-gray-900 font-bold px-8 py-3 rounded-lg hover:bg-yellow-400 transition">متابعة / Continue</button>
+    </div>
+
+    <!-- 2. شاشة المصادقة -->
+    <div id="auth-view" class="hidden-view flex flex-col items-center justify-center h-full p-6">
+        <div class="bg-gray-800 p-8 rounded-xl shadow-lg w-full max-w-md">
+            <div class="flex justify-around mb-6 border-b border-gray-700">
+                <button id="tab-login-btn" class="tab-active text-lg pb-2 transition-all w-1/2">تسجيل الدخول</button>
+                <button id="tab-signup-btn" class="tab-inactive text-lg pb-2 transition-all w-1/2">إنشاء حساب</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label id="lbl-email" class="block text-gray-400 mb-1">البريد الإلكتروني</label>
+                    <input type="email" id="email-input" class="w-full p-3 bg-gray-700 rounded-lg text-white border border-gray-600 focus:outline-none focus:border-yellow-500">
+                </div>
+                <div>
+                    <label id="lbl-pass" class="block text-gray-400 mb-1">كلمة المرور</label>
+                    <input type="password" id="password-input" class="w-full p-3 bg-gray-700 rounded-lg text-white border border-gray-600 focus:outline-none focus:border-yellow-500">
+                </div>
+                <div id="phone-field-wrapper" style="display: none;">
+                    <label id="lbl-phone" class="block text-gray-400 mb-1">رقم الهاتف (مع رمز الدولة +)</label>
+                    <input type="tel" id="phone-input" class="w-full p-3 bg-gray-700 rounded-lg text-white border border-gray-600 focus:outline-none focus:border-yellow-500">
+                </div>
+                
+                <button id="btn-submit-auth" class="w-full bg-gray-600 text-gray-400 p-3.5 rounded-xl font-bold transition shadow-md cursor-not-allowed" disabled>دخول</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. شاشة الدردشة الرئيسية -->
+    <div id="main-chat-view" class="hidden-view flex flex-col h-full relative">
+        <header class="bg-gray-800 p-4 flex justify-between items-center shadow-md z-10">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSettings()" class="text-gray-400 hover:text-white text-2xl">☰</button>
+                <div>
+                    <h2 id="lbl-my-groups" class="font-bold text-lg">مجموعاتي النشطة</h2>
+                    <span id="user-status" class="text-xs text-green-400">متصل</span>
+                    <span id="offline-text" class="text-xs text-red-400 hidden">انقطع الاتصال بالإنترنت...</span>
+                </div>
+            </div>
+            <div class="flex gap-4">
+                <button id="btn-call-audio" class="text-green-400 hover:text-green-300 bg-gray-700 p-2 rounded-full" title="مكالمة صوتية">📞</button>
+                <button id="btn-call-video" class="text-blue-400 hover:text-blue-300 bg-gray-700 p-2 rounded-full" title="مكالمة مرئية">📹</button>
+            </div>
+        </header>
+
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-900 pb-24"></div>
+
+        <div class="absolute bottom-0 w-full bg-gray-800 p-4 flex gap-2 items-center">
+            <input type="file" id="upload-img" accept="image/*" class="hidden">
+            <button onclick="document.getElementById('upload-img').click()" class="text-gray-400 hover:text-white text-xl">🖼️</button>
+            
+            <input type="file" id="upload-vid" accept="video/*" class="hidden">
+            <button onclick="document.getElementById('upload-vid').click()" class="text-gray-400 hover:text-white text-xl">🎥</button>
+
+            <input type="file" id="upload-aud" accept="audio/*" class="hidden">
+            <button onclick="document.getElementById('upload-aud').click()" class="text-gray-400 hover:text-white text-xl">🎵</button>
+
+            <input type="text" id="msg-input" class="flex-1 p-3 bg-gray-700 rounded-full text-white border-none focus:outline-none focus:ring-1 focus:ring-yellow-500" placeholder="اكتب رسالة...">
+            <button id="btn-send" class="bg-yellow-500 text-gray-900 p-3 rounded-full font-bold hover:bg-yellow-400">إرسال</button>
+        </div>
+    </div>
+
+    <!-- 4. شاشة المكالمات -->
+    <div id="call-container" class="hidden-view absolute inset-0 bg-black bg-opacity-95 z-50 flex flex-col">
+        <div class="p-4 text-center text-white font-bold bg-gray-900">مكالمة جارية...</div>
+        <div id="video-streams" class="flex-1 p-4 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto"></div>
+        <div class="bg-gray-900 p-6 flex justify-center gap-8">
+            <button id="btn-toggle-mic" class="bg-gray-700 p-4 rounded-full text-white text-2xl hover:bg-gray-600">🎤</button>
+            <button id="btn-toggle-cam" class="bg-gray-700 p-4 rounded-full text-white text-2xl hover:bg-gray-600">📷</button>
+            <button id="btn-end-call" class="bg-red-600 p-4 rounded-full text-white text-2xl hover:bg-red-500 shadow-lg shadow-red-500/50">☎️</button>
+        </div>
+    </div>
+
+    <!-- 5. القائمة الجانبية (الإعدادات) -->
+    <div id="settings-panel" class="absolute top-0 right-0 h-full w-64 bg-gray-800 z-40 transform translate-x-full transition-transform duration-300 shadow-2xl p-6 flex flex-col">
+        <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+            <h3 id="settings-title" class="text-xl font-bold text-yellow-500">الإعدادات</h3>
+            <button onclick="closeSettings()" class="text-gray-400 hover:text-white text-2xl">×</button>
+        </div>
+        
+        <label id="lbl-lang-select" class="block text-gray-400 mb-2">لغة التطبيق</label>
+        <select id="settings-lang-select" onchange="changeGlobalLanguage(this.value)" class="w-full p-2 bg-gray-700 rounded text-white mb-6">
+            <!-- سيتم تعبئتها برمجياً بـ 20 لغة -->
+        </select>
+
+        <div class="mt-auto">
+            <button id="btn-logout" class="w-full bg-red-600 text-white p-3 rounded-lg font-bold hover:bg-red-500">تسجيل الخروج</button>
+        </div>
+    </div>
+
+    <!-- السكريبت الكامل -->
+    <script>
+        // ==========================================
+        // config.js
+        // ==========================================
+        const SUPABASE_URL = 'https://vfysgxgjahaojrtdagbj.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_aRu1BBu5Pb29tq-fNYSZIA_PeSrrpoC';
+        const AGORA_APP_ID = '77a195757c054acaaf8da43c269b2260';
+        const AGORA_PERMANENT_TOKEN = '00677a195757c054acaaf8da43c269b2260IABQLMitxwtMDMd4/d5F8xLlrQ9ut+mIk0aa9jUYpm13A0UxBjEAAAAAIgBa0EoDD21kagQAAQCPHi99AgCPHi99AwCPHi99BACPHi99';
+
+        let supabaseClient = null;
+        let currentUser = null;
+        let currentAuthMode = 'login';
+        let currentLang = 'ar';
+        let agoraClient = null;
+        let localAudioTrack = null;
+        let localVideoTrack = null;
+        let activeChannel = 'official-golden-chat-id';
+        let realtimeChannel = null;
+
+        // ==========================================
+        // languages.js
+        // ==========================================
+        const uiDict = {
+            ar: { loginTab: "تسجيل الدخول", signupTab: "إنشاء حساب", email: "البريد الإلكتروني", pass: "كلمة المرور", phone: "رقم الهاتف (إجباري مع رمز الدولة +)", btnLogin: "دخول", btnSignup: "إنشاء حساب", offline: "انقطع الاتصال بالإنترنت...", online: "متصل", msgPlaceholder: "اكتب رسالة...", settings: "الإعدادات", langSelect: "لغة التطبيق", myGroups: "مجموعاتي النشطة", logout: "تسجيل الخروج", leave: "مغادرة وحذف", videoLong: "الفيديو يتجاوز 3 دقائق ومرفوض", dir: "rtl" },
+            en: { loginTab: "Log In", signupTab: "Sign Up", email: "Email Address", pass: "Password", phone: "Phone Number (Required with +)", btnLogin: "Log In", btnSignup: "Sign Up", offline: "No Internet Connection...", online: "Online", msgPlaceholder: "Type a message...", settings: "Settings", langSelect: "App Language", myGroups: "My Active Groups", logout: "Log Out", leave: "Leave & Delete", videoLong: "Video exceeds 3 minutes", dir: "ltr" },
+            fr: { loginTab: "Connexion", signupTab: "S'inscrire", email: "Adresse e-mail", pass: "Mot de passe", phone: "Numéro de téléphone (Obligatoire +)", btnLogin: "Connexion", btnSignup: "S'inscrire", offline: "Connexion interrompue...", online: "En ligne", msgPlaceholder: "Écrire un message...", settings: "Paramètres", langSelect: "Langue de l'application", myGroups: "Mes groupes actifs", logout: "Déconnexion", leave: "Quitter et supprimer", videoLong: "La vidéo dépasse 3 minutes", dir: "ltr" },
+            es: { loginTab: "Iniciar sesión", signupTab: "Registrarse", email: "Correo electrónico", pass: "Contraseña", phone: "Número de teléfono (Requerido con +)", btnLogin: "Entrar", btnSignup: "Registrarse", offline: "Sin conexión...", online: "En línea", msgPlaceholder: "Escribe un mensaje...", settings: "Ajustes", langSelect: "Idioma de la aplicación", myGroups: "Mis grupos activos", logout: "Cerrar sesión", leave: "Salir y eliminar", videoLong: "El video supera los 3 minutos", dir: "ltr" },
+            de: { loginTab: "Anmelden", signupTab: "Registrieren", email: "E-Mail-Adresse", pass: "Passwort", phone: "Telefonnummer (Erforderlich mit +)", btnLogin: "Anmelden", btnSignup: "Registrieren", offline: "Keine Internetverbindung...", online: "Online", msgPlaceholder: "Nachricht schreiben...", settings: "Einstellungen", langSelect: "App-Sprache", myGroups: "Meine aktiven Gruppen", logout: "Abmelden", leave: "Verlassen & Löschen", videoLong: "Video überschreitet 3 Minuten", dir: "ltr" },
+            it: { loginTab: "Accedi", signupTab: "Registrati", email: "Indirizzo e-mail", pass: "Password", phone: "Numero di telefono (Obbligatorio con +)", btnLogin: "Accedi", btnSignup: "Registrati", offline: "Connessione assente...", online: "Online", msgPlaceholder: "Scrivi un messaggio...", settings: "Impostazioni", langSelect: "Lingua app", myGroups: "I miei gruppi attivi", logout: "Esci", leave: "Lascia ed elimina", videoLong: "Il video supera i 3 minuti", dir: "ltr" },
+            pt: { loginTab: "Entrar", signupTab: "Cadastrar", email: "E-mail", pass: "Senha", phone: "Número de telefone (Obrigatório com +)", btnLogin: "Entrar", btnSignup: "Cadastrar", offline: "Sem conexão...", online: "Online", msgPlaceholder: "Digite uma mensagem...", settings: "Configurações", langSelect: "Idioma do aplicativo", myGroups: "Meus grupos ativos", logout: "Sair", leave: "Sair e excluir", videoLong: "O vídeo excede 3 minutos", dir: "ltr" },
+            ru: { loginTab: "Вход", signupTab: "Регистрация", email: "Эл. почта", pass: "Пароль", phone: "Номер телефона (Обязательно с +)", btnLogin: "Войти", btnSignup: "Регистрация", offline: "Нет интернета...", online: "В сети", msgPlaceholder: "Введите сообщение...", settings: "Настройки", langSelect: "Язык приложения", myGroups: "Мои группы", logout: "Выйти", leave: "Покинуть и удалить", videoLong: "Видео превышает 3 минуты", dir: "ltr" },
+            zh: { loginTab: "登录", signupTab: "注册", email: "电子邮箱", pass: "密码", phone: "手机号 (须带 +)", btnLogin: "登录", btnSignup: "注册", offline: "无网络连接...", online: "在线", msgPlaceholder: "输入消息...", settings: "设置", langSelect: "应用语言", myGroups: "我的群组", logout: "登出", leave: "离开并删除", videoLong: "视频超过3分钟", dir: "ltr" },
+            ja: { loginTab: "ログイン", signupTab: "登録", email: "メールアドレス", pass: "パスワード", phone: "電話番号 (+付き)", btnLogin: "ログイン", btnSignup: "登録", offline: "接続なし...", online: "オンライン", msgPlaceholder: "メッセージを入力...", settings: "設定", langSelect: "アプリ言語", myGroups: "参加グループ", logout: "ログアウト", leave: "退出して削除", videoLong: "動画が3分を超えています", dir: "ltr" },
+            ko: { loginTab: "로그인", signupTab: "회원가입", email: "이메일", pass: "비밀번호", phone: "전화번호 (+ 포함 필수)", btnLogin: "로그인", btnSignup: "회원가입", offline: "연결 끊김...", online: "온라인", msgPlaceholder: "메시지 입력...", settings: "설정", langSelect: "앱 언어", myGroups: "내 활성 그룹", logout: "로그아웃", leave: "나가기 및 삭제", videoLong: "영상이 3분을 초과함", dir: "ltr" },
+            hi: { loginTab: "लॉग इन", signupTab: "सााइन अप", email: "ईमेल पता", pass: "पासवर्ड", phone: "फ़ोन नंबर (+ के साथ आवश्यक)", btnLogin: "लॉग इन", btnSignup: "सााइन अप", offline: "इंटरनेट नहीं है...", online: "ऑनलाइन", msgPlaceholder: "संदेश लिखें...", settings: "सेटिंग्स", langSelect: "ऐप भाषा", myGroups: "मेरे सक्रिय समूह", logout: "लॉग आउट", leave: "छोड़ें और हटाएं", videoLong: "वीडियो 3 मिनट से अधिक है", dir: "ltr" },
+            ur: { loginTab: "لاگ ان", signupTab: "سائن اپ", email: "ای میل پتہ", pass: "پاس ورڈ", phone: "فون نمبر (+ کے ساتھ ضروری)", btnLogin: "لاگ ان", btnSignup: "سائن اپ", offline: "انٹرنیٹ نہیں ہے...", online: "آن لائن", msgPlaceholder: "پیغام لکھیں...", settings: "ترتیبات", langSelect: "پہچان کی زبان", myGroups: "میرے گروپس", logout: "لاگ آؤٹ", leave: "چھوڑیں اور حذف کریں", videoLong: "ویڈیو 3 منٹ سے زیادہ ہے", dir: "rtl" },
+            tr: { loginTab: "Giriş Yap", signupTab: "Kayıt Ol", email: "E-posta Adresi", pass: "Şifre", phone: "Telefon Numarası (+ ile zorunlu)", btnLogin: "Giriş", btnSignup: "Kayıt Ol", offline: "Bağlantı yok...", online: "Çevrimiçi", msgPlaceholder: "Bir mesaj yazın...", settings: "Ayarlar", langSelect: "Uygulama Dili", myGroups: "Aktif Gruplarım", logout: "Çıkış Yap", leave: "Ayrıl ve Sil", videoLong: "Video 3 dakikayı aşıyor", dir: "ltr" },
+            id: { loginTab: "Masuk", signupTab: "Daftar", email: "Alamat Email", pass: "Kata Sandi", phone: "Nomor Telepon (Wajib dengan +)", btnLogin: "Masuk", btnSignup: "Daftar", offline: "Tidak ada internet...", online: "Online", msgPlaceholder: "Ketik pesan...", settings: "Pengaturan", langSelect: "Bahasa Aplikasi", myGroups: "Grup Aktif Saya", logout: "Keluar", leave: "Keluar & Hapus", videoLong: "Video melebihi 3 menit", dir: "ltr" },
+            nl: { loginTab: "Inloggen", signupTab: "Aanmelden", email: "E-mailadres", pass: "Wachtwoord", phone: "Telefoonnummer (Verplicht met +)", btnLogin: "Inloggen", btnSignup: "Aanmelden", offline: "Geen internetverbinding...", online: "Online", msgPlaceholder: "Typ een bericht...", settings: "Instellingen", langSelect: "App-taal", myGroups: "Mijn actieve groepen", logout: "Uitloggen", leave: "Verlaten & verwijderen", videoLong: "Video is langer dan 3 minuten", dir: "ltr" },
+            pl: { loginTab: "Zaloguj", signupTab: "Zarejestruj", email: "Adres e-mail", pass: "Hasło", phone: "Numer telefonu (Wymagany z +)", btnLogin: "Zaloguj", btnSignup: "Zarejestruj", offline: "Brak połączenia...", online: "Online", msgPlaceholder: "Wpisz wiadomość...", settings: "Ustawienia", langSelect: "Język aplikacji", myGroups: "Moje aktywne grupy", logout: "Wyloguj", leave: "Opuść i usuń", videoLong: "Wideo przekracza 3 minuty", dir: "ltr" },
+            sv: { loginTab: "Logga in", signupTab: "Registrera", email: "E-postadress", pass: "Lösenord", phone: "Telefonnummer (Krävs med +)", btnLogin: "Logga in", btnSignup: "Registrera", offline: "Ingen internetanslutning...", online: "Online", msgPlaceholder: "Skriv ett meddelande...", settings: "Inställningar", langSelect: "App-språk", myGroups: "Mina aktiva grupper", logout: "Logga ut", leave: "Lämna & radera", videoLong: "Videon överstiger 3 minuter", dir: "ltr" },
+            fa: { loginTab: "ورود", signupTab: "ثبت‌نام", email: "ایمیل", pass: "رمز عبور", phone: "شماره تلفن (الزامی با +)", btnLogin: "ورود", btnSignup: "ثبت‌نام", offline: "قطع ارتباط با اینترنت...", online: "آنلاین", msgPlaceholder: "پیامی بنویسید...", settings: "تنظیمات", langSelect: "زبان برنامه", myGroups: "گروه‌های فعال من", logout: "خروج", leave: "ترك و حذف", videoLong: "ویدیو بیش از ۳ دقیقه است", dir: "rtl" },
+            bn: { loginTab: "লগইন", signupTab: "সাইন আপ", email: "ইমেইল ঠিকানা", pass: "পাসওয়ার্ড", phone: "ফোন নম্বর (+ সহ আবশ্যক)", btnLogin: "লগইন", btnSignup: "সাইন আপ", offline: "ইন্টারনেট সংযোগ বিচ্ছিন্ন...", online: "অনলাইন", msgPlaceholder: "একটি বার্তা লিখুন...", settings: "সেটিংস", langSelect: "অ্যাপের ভাষা", myGroups: "আমার সক্রিয় গ্রুপ", logout: "লগআউট", leave: "ত্যাগ করুন এবং মুছুন", videoLong: "ভিডিওটি ৩ মিনিটের বেশি", dir: "ltr" }
+        };
+
+        const extendedLanguages = [
+            { code: 'ar', name: 'العربية (Arabic)' }, { code: 'en', name: 'English (UK/US)' }, { code: 'fr', name: 'Français (French)' },
+            { code: 'es', name: 'Español (Spanish)' }, { code: 'de', name: 'Deutsch (German)' }, { code: 'it', name: 'Italiano (Italian)' },
+            { code: 'pt', name: 'Português (Portuguese)' }, { code: 'ru', name: 'Русский (Russian)' }, { code: 'zh', name: '中文 (Chinese)' },
+            { code: 'ja', name: '日本語 (Japanese)' }, { code: 'ko', name: '한국어 (Korean)' }, { code: 'hi', name: 'हिन्दी (Hindi)' },
+            { code: 'ur', name: 'اردو (Urdu)' }, { code: 'tr', name: 'Türkçe (Turkish)' }, { code: 'id', name: 'Bahasa Indonesia' },
+            { code: 'nl', name: 'Nederlands (Dutch)' }, { code: 'pl', name: 'Polski (Polish)' }, { code: 'sv', name: 'Svenska (Swedish)' },
+            { code: 'fa', name: 'فارسی (Persian)' }, { code: 'bn', name: 'বাংলা (Bengali)' }
+        ];
+
+        function initLanguagesDropdown() {
+            const select = document.getElementById('global-lang-select');
+            const settingsSelect = document.getElementById('settings-lang-select');
+            if(select) {
+                select.innerHTML = '';
+                extendedLanguages.forEach(lang => {
+                    const option = document.createElement('option');
+                    option.value = lang.code;
+                    option.innerText = lang.name;
+                    select.appendChild(option);
+                });
+            }
+            if(settingsSelect) {
+                settingsSelect.innerHTML = '';
+                extendedLanguages.forEach(lang => {
+                    const option = document.createElement('option');
+                    option.value = lang.code;
+                    option.innerText = lang.name;
+                    settingsSelect.appendChild(option);
+                });
+            }
+        }
+
+        function setLanguageAndProceed(langCode) {
+            applyLanguage(langCode);
+            showView('auth-view');
+            switchAuthTab('login');
+            initSupabaseSafe();
+        }
+
+        function changeGlobalLanguage(langCode) {
+            applyLanguage(langCode);
+            closeSettings();
+        }
+
+        function applyLanguage(langCode) {
+            currentLang = uiDict[langCode] ? langCode : 'en'; 
+            const d = uiDict[currentLang];
+            
+            const htmlRoot = document.getElementById('html-root');
+            if(htmlRoot) {
+                htmlRoot.setAttribute('dir', d.dir);
+                htmlRoot.setAttribute('lang', currentLang);
+            }
+            
+            const langSelect = document.getElementById('global-lang-select');
+            const settingsSelect = document.getElementById('settings-lang-select');
+            if(langSelect) langSelect.value = currentLang;
+            if(settingsSelect) settingsSelect.value = currentLang;
+            
+            const elementsToUpdate = {
+                'tab-login-btn': d.loginTab,
+                'tab-signup-btn': d.signupTab,
+                'lbl-email': d.email,
+                'lbl-pass': d.pass,
+                'lbl-phone': d.phone,
+                'offline-text': d.offline,
+                'user-status': d.online,
+                'settings-title': d.settings,
+                'lbl-lang-select': d.langSelect,
+                'lbl-my-groups': d.myGroups,
+                'btn-logout': d.logout
+            };
+
+            for (const [id, text] of Object.entries(elementsToUpdate)) {
+                const el = document.getElementById(id);
+                if(el) el.innerText = text;
+            }
+
+            const msgInput = document.getElementById('msg-input');
+            if(msgInput) msgInput.placeholder = d.msgPlaceholder;
+
+            switchAuthTab(currentAuthMode);
+        }
+
+        // ==========================================
+        // auth.js
+        // ==========================================
+        function switchAuthTab(mode) {
+            currentAuthMode = mode;
+            const d = uiDict[currentLang];
+            const phoneWrapper = document.getElementById('phone-field-wrapper');
+            const submitBtn = document.getElementById('btn-submit-auth');
+            
+            if (mode === 'login') {
+                document.getElementById('tab-login-btn').className = "tab-active text-lg pb-2 transition-all w-1/2";
+                document.getElementById('tab-signup-btn').className = "tab-inactive text-lg pb-2 transition-all w-1/2";
+                if(phoneWrapper) phoneWrapper.style.display = "none";
+                if(submitBtn) submitBtn.innerText = d.btnLogin;
+            } else {
+                document.getElementById('tab-signup-btn').className = "tab-active text-lg pb-2 transition-all w-1/2";
+                document.getElementById('tab-login-btn').className = "tab-inactive text-lg pb-2 transition-all w-1/2";
+                if(phoneWrapper) phoneWrapper.style.display = "block";
+                if(submitBtn) submitBtn.innerText = d.btnSignup;
+            }
+            validateForm();
+        }
+
+        function validateForm() {
+            const emailEl = document.getElementById('email-input');
+            const passEl = document.getElementById('password-input');
+            const phoneEl = document.getElementById('phone-input');
+            const btn = document.getElementById('btn-submit-auth');
+
+            if(!emailEl || !passEl || !btn) return;
+
+            const email = emailEl.value.trim();
+            const pass = passEl.value.trim();
+            const phone = phoneEl ? phoneEl.value.trim() : '';
+
+            let isValid = email.length > 5 && pass.length >= 6;
+            if (currentAuthMode === 'signup') {
+                isValid = isValid && phone.length >= 8 && phone.startsWith('+');
+            }
+
+            if (isValid) {
+                btn.disabled = false;
+                btn.className = "w-full bg-yellow-500 text-gray-900 p-3.5 rounded-xl font-bold transition hover:bg-yellow-400 shadow-md cursor-pointer";
+            } else {
+                btn.disabled = true;
+                btn.className = "w-full bg-gray-600 text-gray-400 p-3.5 rounded-xl font-bold transition shadow-md cursor-not-allowed";
+            }
+        }
+
+        function initSupabaseSafe() {
+            if (supabaseClient) return;
+            try {
+                if (window.supabase) {
+                    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                    checkSession();
+                } else {
+                    setTimeout(initSupabaseSafe, 500);
+                }
+            } catch (err) { console.error("Supabase Init Error:", err); }
+        }
+
+        async function handleAuthSubmit() {
+            if (!supabaseClient) return;
+            const email = document.getElementById('email-input').value.trim();
+            const password = document.getElementById('password-input').value.trim();
+            const phone = document.getElementById('phone-input') ? document.getElementById('phone-input').value.trim() : '';
+            const btn = document.getElementById('btn-submit-auth');
+            
+            if(btn) {
+                btn.innerText = "...";
+                btn.disabled = true;
+            }
+
+            try {
+                if (currentAuthMode === 'login') {
+                    const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    if (error) throw error;
+                    currentUser = data.user;
+                } else {
+                    const { data, error } = await supabaseClient.auth.signUp({
+                        email, password, options: { data: { phone_number: phone } }
+                    });
+                    if (error) throw error;
+                    currentUser = data.user;
+                    
+                    if (currentUser) {
+                        await supabaseClient.from('profiles').upsert({
+                            id: currentUser.id, email: email, phone_number: phone, updated_at: new Date()
+                        });
+                    }
+                }
+                playAudioTone('login');
+                startApp();
+            } catch (err) {
+                alert("Auth Error: " + err.message);
+            } finally {
+                switchAuthTab(currentAuthMode); 
+            }
+        }
+
+        async function checkSession() {
+            try {
+                const { data } = await supabaseClient.auth.getSession();
+                if (data?.session) {
+                    currentUser = data.session.user;
+                    startApp();
+                }
+            } catch (e) {}
+        }
+
+        async function logoutUser() {
+            if (supabaseClient) {
+                await supabaseClient.auth.signOut();
+                currentUser = null;
+                closeSettings();
+                showView('auth-view');
+                
+                const emailInput = document.getElementById('email-input');
+                const passInput = document.getElementById('password-input');
+                if(emailInput) emailInput.value = '';
+                if(passInput) passInput.value = '';
+                validateForm();
+            }
+        }
+
+        // ==========================================
+        // chat.js
+        // ==========================================
+        function showView(viewId) {
+            const views = ['language-view', 'auth-view', 'main-chat-view', 'call-container'];
+            views.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    if (id === viewId) el.classList.remove('hidden-view');
+                    else el.classList.add('hidden-view');
+                }
+            });
+        }
+
+        function startApp() {
+            showView('main-chat-view');
+            loadMessages();
+            subscribeToMessages();
+        }
+
+        async function loadMessages() {
+            const chatContainer = document.getElementById('chat-messages');
+            if(!chatContainer) return;
+            chatContainer.innerHTML = '';
+
+            try {
+                const { data, error } = await supabaseClient
+                    .from('messages')
+                    .select('*')
+                    .eq('channel_id', activeChannel)
+                    .order('created_at', { ascending: true })
+                    .limit(100);
+
+                if (error) throw error;
+                
+                data.forEach(msg => renderMessage(msg));
+                scrollToBottom();
+            } catch (err) {
+                console.error("Error loading messages:", err);
+            }
+        }
+
+        function subscribeToMessages() {
+            if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
+            
+            realtimeChannel = supabaseClient.channel('custom-all-channel')
+              .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'messages', filter: `channel_id=eq.${activeChannel}` },
+                (payload) => {
+                    renderMessage(payload.new);
+                    scrollToBottom();
+                    if(payload.new.user_id !== currentUser.id) playAudioTone('receive');
+                }
+              )
+              .subscribe();
+        }
+
+        function renderMessage(msg) {
+            const chatContainer = document.getElementById('chat-messages');
+            if(!chatContainer) return;
+
+            const isMine = msg.user_id === currentUser?.id;
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `flex flex-col max-w-[80%] mb-4 ${isMine ? 'self-end items-end' : 'self-start items-start'}`;
+
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = `p-3 rounded-2xl break-words ${isMine ? 'bg-yellow-500 text-gray-900 rounded-br-none shadow-md' : 'glass-panel text-white rounded-bl-none shadow-md'}`;
+            
+            if (msg.content && msg.content.trim() !== '') {
+                const textSpan = document.createElement('span');
+                textSpan.innerText = msg.content;
+                bubbleDiv.appendChild(textSpan);
+            }
+
+            if (msg.media_url) {
+                const mediaWrapper = document.createElement('div');
+                mediaWrapper.className = msg.content ? "mt-2" : "";
+                
+                if (msg.media_type === 'image') {
+                    mediaWrapper.innerHTML = `<img src="${msg.media_url}" class="max-w-full h-auto rounded-lg cursor-pointer" onclick="window.open('${msg.media_url}')" loading="lazy" />`;
+                } else if (msg.media_type === 'video') {
+                    mediaWrapper.innerHTML = `<video src="${msg.media_url}" controls class="max-w-full rounded-lg h-48 bg-black"></video>`;
+                } else if (msg.media_type === 'audio') {
+                    mediaWrapper.innerHTML = `<audio src="${msg.media_url}" controls class="max-w-full mt-1"></audio>`;
+                }
+                bubbleDiv.appendChild(mediaWrapper);
+            }
+
+            const timeSpan = document.createElement('span');
+            timeSpan.className = `text-[10px] mt-1 px-1 ${isMine ? 'text-gray-400' : 'text-gray-500'}`;
+            timeSpan.innerText = formatTime(msg.created_at);
+
+            msgDiv.appendChild(bubbleDiv);
+            msgDiv.appendChild(timeSpan);
+            chatContainer.appendChild(msgDiv);
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('msg-input');
+            if(!input || !input.value.trim()) return;
+
+            const content = input.value.trim();
+            input.value = '';
+
+            try {
+                const { error } = await supabaseClient
+                    .from('messages')
+                    .insert([{ channel_id: activeChannel, user_id: currentUser.id, content: content, media_url: null, media_type: null }]);
+                if (error) throw error;
+                playAudioTone('send');
+            } catch (err) {
+                console.error("Error sending message:", err);
+            }
+        }
+
+        async function handleFileUpload(event, type) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (type === 'video') {
+                const video = document.createElement('video');
+                video.preload = 'metadata';
+                video.onloadedmetadata = async function() {
+                    window.URL.revokeObjectURL(video.src);
+                    if (video.duration > 180) {
+                        alert(uiDict[currentLang].videoLong);
+                        return;
+                    }
+                    await uploadMediaToSupabase(file, type);
+                }
+                video.src = URL.createObjectURL(file);
+                return; 
+            }
+            await uploadMediaToSupabase(file, type);
+        }
+
+        async function uploadMediaToSupabase(file, type) {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `uploads/${currentUser.id}/${fileName}`;
+
+            try {
+                const input = document.getElementById('msg-input');
+                const originalPlaceholder = input ? input.placeholder : '';
+                if(input) input.placeholder = "جاري الرفع...";
+
+                const { error: uploadError } = await supabaseClient.storage.from('chat-media').upload(filePath, file, { cacheControl: '3600', upsert: false });
+                if (uploadError) throw uploadError;
+
+                const { data } = supabaseClient.storage.from('chat-media').getPublicUrl(filePath);
+                
+                const { error: msgError } = await supabaseClient
+                    .from('messages')
+                    .insert([{ channel_id: activeChannel, user_id: currentUser.id, content: '', media_url: data.publicUrl, media_type: type }]);
+
+                if (msgError) throw msgError;
+                playAudioTone('send');
+                if(input) input.placeholder = originalPlaceholder;
+            } catch (err) {
+                console.error("Upload Error:", err);
+                alert("حدث خطأ أثناء رفع الملف.");
+            }
+        }
+
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chat-messages');
+            if(chatContainer) chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function formatTime(dateString) {
+            const d = new Date(dateString);
+            let hours = d.getHours();
+            let minutes = d.getMinutes();
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; 
+            minutes = minutes < 10 ? '0' + minutes : minutes;
+            return `${hours}:${minutes} ${ampm}`;
+        }
+
+        function playAudioTone(type) {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if(!AudioContext) return;
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                
+                if (type === 'send') {
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(500, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(700, ctx.currentTime + 0.1);
+                } else if (type === 'receive') {
+                    osc.type = 'triangle'; osc.frequency.setValueAtTime(700, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(500, ctx.currentTime + 0.1);
+                } else if (type === 'login') {
+                    osc.type = 'sine'; osc.frequency.setValueAtTime(400, ctx.currentTime); osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
+                }
+
+                gain.gain.setValueAtTime(0.05, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+                
+                osc.start(); osc.stop(ctx.currentTime + 0.15);
+            } catch(e) {}
+        }
+
+        // ==========================================
+        // calls.js
+        // ==========================================
+        async function joinCall(withVideo = false) {
+            try {
+                const callContainer = document.getElementById('call-container');
+                if (callContainer) callContainer.classList.remove('hidden-view');
+
+                agoraClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+                agoraClient.on("user-published", handleUserPublished);
+                agoraClient.on("user-unpublished", handleUserUnpublished);
+
+                await agoraClient.join(AGORA_APP_ID, activeChannel, AGORA_PERMANENT_TOKEN, currentUser.id);
+                localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack();
+                
+                if (withVideo) {
+                    localVideoTrack = await AgoraRTC.createCameraVideoTrack();
+                    const localPlayerContainer = document.createElement("div");
+                    localPlayerContainer.id = `video-${currentUser.id}`;
+                    localPlayerContainer.className = "w-full h-48 bg-black rounded-lg overflow-hidden relative shadow-lg";
+                    
+                    const videoStreamsDiv = document.getElementById("video-streams");
+                    if (videoStreamsDiv) {
+                        videoStreamsDiv.appendChild(localPlayerContainer);
+                        localVideoTrack.play(localPlayerContainer);
+                    }
+                    await agoraClient.publish([localAudioTrack, localVideoTrack]);
+                } else {
+                    await agoraClient.publish([localAudioTrack]);
+                }
+            } catch (error) {
+                console.error("خطأ في الانضمام للمكالمة:", error);
+                alert("فشل الاتصال. يرجى التأكد من صلاحيات المايكروفون/الكاميرا.");
+            }
+        }
+
+        async function handleUserPublished(user, mediaType) {
+            await agoraClient.subscribe(user, mediaType);
+            
+            if (mediaType === "video") {
+                const remoteVideoTrack = user.videoTrack;
+                let remotePlayerContainer = document.getElementById(`video-${user.uid}`);
+                
+                if (!remotePlayerContainer) {
+                    remotePlayerContainer = document.createElement("div");
+                    remotePlayerContainer.id = `video-${user.uid}`;
+                    remotePlayerContainer.className = "w-full h-48 bg-black rounded-lg overflow-hidden relative shadow-lg mt-2";
+                    
+                    const videoStreamsDiv = document.getElementById("video-streams");
+                    if (videoStreamsDiv) videoStreamsDiv.appendChild(remotePlayerContainer);
+                }
+                remoteVideoTrack.play(remotePlayerContainer);
+            }
+
+            if (mediaType === "audio") {
+                const remoteAudioTrack = user.audioTrack;
+                remoteAudioTrack.play();
+            }
+        }
+
+        function handleUserUnpublished(user, mediaType) {
+            if (mediaType === "video") {
+                const remotePlayerContainer = document.getElementById(`video-${user.uid}`);
+                if (remotePlayerContainer) remotePlayerContainer.remove();
+            }
+        }
+
+        async function toggleAudio() {
+            if (!localAudioTrack) return;
+            const isMuted = !localAudioTrack.enabled;
+            await localAudioTrack.setEnabled(isMuted); 
+            const micBtn = document.getElementById('btn-toggle-mic');
+            if (micBtn) micBtn.classList.toggle('text-red-500', !isMuted);
+        }
+
+        async function toggleVideo() {
+            if (!localVideoTrack) return;
+            const isVideoEnabled = !localVideoTrack.enabled;
+            await localVideoTrack.setEnabled(isVideoEnabled);
+            const camBtn = document.getElementById('btn-toggle-cam');
+            if (camBtn) camBtn.classList.toggle('text-red-500', !isVideoEnabled);
+        }
+
+        async function leaveCall() {
+            if (localAudioTrack) { localAudioTrack.stop(); localAudioTrack.close(); localAudioTrack = null; }
+            if (localVideoTrack) { localVideoTrack.stop(); localVideoTrack.close(); localVideoTrack = null; }
+            
+            const videoStreamsDiv = document.getElementById("video-streams");
+            if (videoStreamsDiv) videoStreamsDiv.innerHTML = "";
+
+            if (agoraClient) { await agoraClient.leave(); agoraClient = null; }
+
+            const callContainer = document.getElementById('call-container');
+            if (callContainer) callContainer.classList.add('hidden-view');
+        }
+
+        // ==========================================
+        // main.js
+        // ==========================================
+        document.addEventListener('DOMContentLoaded', () => {
+            // استدعاء دوال التهيئة الصحيحة
+            initLanguagesDropdown();
+            applyLanguage(currentLang);
+            initSupabaseSafe();
+
+            const btnContinue = document.getElementById('btn-continue');
+            if (btnContinue) btnContinue.addEventListener('click', () => showView('auth-view'));
+
+            const tabLogin = document.getElementById('tab-login-btn');
+            const tabSignup = document.getElementById('tab-signup-btn');
+            const btnSubmitAuth = document.getElementById('btn-submit-auth');
+
+            if (tabLogin) tabLogin.addEventListener('click', () => switchAuthTab('login'));
+            if (tabSignup) tabSignup.addEventListener('click', () => switchAuthTab('signup'));
+            if (btnSubmitAuth) btnSubmitAuth.addEventListener('click', handleAuthSubmit);
+
+            const btnSend = document.getElementById('btn-send');
+            if (btnSend) btnSend.addEventListener('click', sendMessage);
+
+            const msgInput = document.getElementById('msg-input');
+            if(msgInput) msgInput.addEventListener('keypress', function (e) { if (e.key === 'Enter') sendMessage(); });
+
+            ['email-input', 'password-input', 'phone-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if(el) el.addEventListener('input', validateForm);
+            });
+
+            const uploadImg = document.getElementById('upload-img');
+            const uploadVid = document.getElementById('upload-vid');
+            const uploadAud = document.getElementById('upload-aud');
+
+            if (uploadImg) uploadImg.addEventListener('change', (e) => handleFileUpload(e, 'image'));
+            if (uploadVid) uploadVid.addEventListener('change', (e) => handleFileUpload(e, 'video'));
+            if (uploadAud) uploadAud.addEventListener('change', (e) => handleFileUpload(e, 'audio'));
+
+            const btnLogout = document.getElementById('btn-logout');
+            if (btnLogout) btnLogout.addEventListener('click', logoutUser);
+
+            const btnCallAudio = document.getElementById('btn-call-audio');
+            const btnCallVideo = document.getElementById('btn-call-video');
+            const btnEndCall = document.getElementById('btn-end-call');
+            const btnToggleMic = document.getElementById('btn-toggle-mic');
+            const btnToggleCam = document.getElementById('btn-toggle-cam');
+
+            if (btnCallAudio) btnCallAudio.addEventListener('click', () => joinCall(false));
+            if (btnCallVideo) btnCallVideo.addEventListener('click', () => joinCall(true));
+            if (btnEndCall) btnEndCall.addEventListener('click', leaveCall);
+            if (btnToggleMic) btnToggleMic.addEventListener('click', toggleAudio);
+            if (btnToggleCam) btnToggleCam.addEventListener('click', toggleVideo);
+
+            window.addEventListener('online', updateNetworkStatus);
+            window.addEventListener('offline', updateNetworkStatus);
+            updateNetworkStatus();
+        });
+
+        function updateNetworkStatus() {
+            const isOnline = navigator.onLine;
+            const body = document.body;
+            
+            if (isOnline) {
+                body.classList.remove('grayscale', 'opacity-90');
+                document.getElementById('offline-text')?.classList.add('hidden');
+                document.getElementById('user-status')?.classList.remove('hidden');
+            } else {
+                body.classList.add('grayscale', 'opacity-90');
+                document.getElementById('offline-text')?.classList.remove('hidden');
+                document.getElementById('user-status')?.classList.add('hidden');
+            }
+        }
+
+        function toggleSettings() {
+            const panel = document.getElementById('settings-panel');
+            if (panel) panel.classList.toggle('translate-x-full');
+        }
+
+        function closeSettings() {
+            const panel = document.getElementById('settings-panel');
+            if (panel && !panel.classList.contains('translate-x-full')) {
+                panel.classList.add('translate-x-full');
+            }
+        }
+    </script>
+</body>
+</html>
